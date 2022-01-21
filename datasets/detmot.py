@@ -130,6 +130,7 @@ class DetMOTDetection:
             obj_id = label[1] + obj_idx_offset if label[1] >= 0 else label[1]
             targets['obj_ids'].append(obj_id)  # relative id
 
+        import ipdb; ipdb.set_trace()
         targets['area'] = torch.as_tensor(targets['area'])
         targets['iscrowd'] = torch.as_tensor(targets['iscrowd'])
         targets['labels'] = torch.as_tensor(targets['labels'])

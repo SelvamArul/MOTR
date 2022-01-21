@@ -221,6 +221,9 @@ def main(args):
         collate_fn = utils.mot_collate_fn
     else:
         collate_fn = utils.collate_fn
+
+    args.num_workers = 0
+
     data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
                                    collate_fn=collate_fn, num_workers=args.num_workers,
                                    pin_memory=True)
@@ -318,7 +321,7 @@ def main(args):
 
     print("Start training")
     start_time = time.time()
-
+    # import ipdb; ipdb.set_trace()
     train_func = train_one_epoch
     if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint']:
         train_func = train_one_epoch_mot

@@ -19,7 +19,14 @@ def load_model(model, model_path, optimizer=None, resume=False,
     print(f'loaded {model_path}')
     state_dict = checkpoint['model']
     model_state_dict = model.state_dict()
-
+    count = 0 
+    for k in state_dict:
+        if k in model_state_dict:
+            if state_dict[k].shape != model_state_dict[k].shape:
+                count += 1
+                # print (k, state_dict[k].shape, model_state_dict[k].shape)
+    # print ("# differences ", count)
+    # import ipdb; ipdb.set_trace()
     # check loaded parameters and created model parameters
     msg = 'If you see this, your model does not fully load the ' + \
           'pre-trained weight. Please make sure ' + \
@@ -49,7 +56,10 @@ def load_model(model, model_path, optimizer=None, resume=False,
             print('No param {}.'.format(k) + msg)
             state_dict[k] = model_state_dict[k]
     model.load_state_dict(state_dict, strict=False)
-
+    
+    for ii in range(10):
+        print ()
+    print ("-"*30)
     # resume optimizer parameters
     if optimizer is not None and resume:
         if 'optimizer' in checkpoint:

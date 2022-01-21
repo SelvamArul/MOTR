@@ -187,7 +187,7 @@ class ClipMatcher(SetCriterion):
             'pred_logits': pred_logits_i.unsqueeze(0),
             'pred_boxes': pred_boxes_i.unsqueeze(0),
         }
-
+        # import ipdb; ipdb.set_trace()
         # step1. inherit and update the previous tracks.
         num_disappear_track = 0
         for j in range(len(track_instances)):
@@ -512,7 +512,7 @@ class MOTR(nn.Module):
                 pos.append(pos_l)
 
         hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, track_instances.query_pos, ref_pts=track_instances.ref_pts)
-
+        # import ipdb; ipdb.set_trace()
         outputs_classes = []
         outputs_coords = []
         for lvl in range(hs.shape[0]):
@@ -599,6 +599,7 @@ class MOTR(nn.Module):
         }
 
         track_instances = self._generate_empty_tracks()
+        print ("forward ", "-"*15)
         for frame in frames:
             if not isinstance(frame, NestedTensor):
                 frame = nested_tensor_from_tensor_list([frame])
