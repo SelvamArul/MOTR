@@ -14,7 +14,8 @@ Adapted from detmot.py
 
 Important details:
     ycbv frames have only one instance per class
-    Instead of separate annotations for track_ids, we use object_ids as the track_ids
+    Instead of separate annotations for track_ids, we use object_ids as the track_ids with video specific prefix
+    class id labels follow ycbv covention (22 classes in total for 21 objects with 0 for background)
 """
 from pathlib import Path
 import cv2
@@ -38,6 +39,7 @@ from models.structures import Instances
 
 from pathlib import Path
 import argparse
+from scipy.io import loadmat
 
 class YCBV:
     def __init__(self, args, transforms=None):
@@ -47,28 +49,29 @@ class YCBV:
         self.sample_mode = args.sample_mode
         self.sample_interval = args.sample_interval
         self.vis = args.vis
+        self.video_names = []
         self.video_dict = {}
-        
+        self.dataset_desc_file = args.dataset_desc_file 
         self.img_files = []
-        self.labels = {}
         
         _dataset_path = Path(args.dataset_path)
         if not _dataset_path.exists():
             import sys
             sys.exit("dataset_path ",dataset_path, " does not exist")
         
-        for f in _dataset_path.iterdir():
-            self.video_dict[str(f)] = len(self.video_dict)
-            video_path = f / "rgb"
-            self.img_files += sorted([str(x) for x in video_path.iterdir()])
-            with open ( f / 'scene_gt.json') as gt_file:
-                gt_labels = json.loads(gt_file.read())
-                gt_labels_dict = {f"{video_path}/{int(k):06}.png":v for (k,v) in gt_labels.items()}
-                self.labels.update(gt_labels_dict)
-                
+        with open(args.dataset_desc_file, "r") as desc_file:
+            lines = desc_file.readlines()
+            self.video_names += [line.strip() for line in lines]
+        
+        for video_name in self.video_names:
+            video_path = _dataset_path / video_name
+            self.video_dict[str(video_path)] = len(self.video_dict)
+            self.img_files += sorted([str(x) for x in video_path.iterdir() if "-color.png" in str(x)])
+
+        # import ipdb; ipdb.set_trace()
+
 
         self.item_num = len(self.img_files) - (self.num_frames_per_batch - 1) * self.sample_interval
-        import ipdb; ipdb.set_trace()
         # self._register_videos()
 
         # video sampler.
@@ -86,13 +89,29 @@ class YCBV:
             self.num_frames_per_batch = self.lengths[0]
             self.current_epoch = 0
 
-    # def _register_videos(self):
-    #     for label_name in self.label_files:
-    #         video_name = '/'.join(label_name.split('/')[:-1])
-    #         if video_name not in self.video_dict:
-    #             print("register {}-th video: {} ".format(len(self.video_dict) + 1, video_name))
-    #             self.video_dict[video_name] = len(self.video_dict)
-    #             assert len(self.video_dict) <= 300
+        self.obj_id_to_name  = {
+                1:"002_master_chef_can",
+                2:"003_cracker_box",
+                3:"004_sugar_box",
+                4:"005_tomato_soup_can",
+                5:"006_mustard_bottle",
+                6:"007_tuna_fish_can",
+                7:"008_pudding_box",
+                8:"009_gelatin_box",
+                9:"010_potted_meat_can",
+                10:"011_banana",
+                11:"019_pitcher_base",
+                12:"021_bleach_cleanser",
+                13:"024_bowl",
+                14:"025_mug",
+                15:"035_power_drill",
+                16:"036_wood_block",
+                17:"037_scissors",
+                18:"040_large_marker",
+                19:"051_large_clamp",
+                20:"052_extra_large_clamp",
+                21:"061_foam_brick"
+                }
 
     def set_epoch(self, epoch):
         self.current_epoch = epoch
@@ -118,28 +137,35 @@ class YCBV:
         gt_instances.labels = targets['labels']
         gt_instances.obj_ids = targets['obj_ids']
         gt_instances.area = targets['area']
+        gt_instances.poses = targets['poses']
         return gt_instances
 
+    @staticmethod
+    def _read_boxes(file_path):
+        boxes = {}
+        with open(file_path, 'r') as boxes_file:
+            for line in boxes_file:
+                line = line.strip().split()
+                boxes[line[0]] = [float(x) for x in line[1:]]
+
+        return boxes
+
     def _pre_single_frame(self, idx: int):
+        # TODO
         img_path = self.img_files[idx]
-        label_path = self.label_files[idx]
         img = Image.open(img_path)
         targets = {}
         w, h = img._size
         assert w > 0 and h > 0, "invalid image {} with shape {} {}".format(img_path, w, h)
-        if osp.isfile(label_path):
-            labels0 = np.loadtxt(label_path, dtype=np.float32).reshape(-1, 6)
+        
+        # import ipdb; ipdb.set_trace()
+        label_path = img_path[:-10] + "-meta.mat"
+        boxes_path = img_path[:-10] + "-box.txt"
 
-            # normalized cewh to pixel xyxy format
-            labels = labels0.copy()
-            labels[:, 2] = w * (labels0[:, 2] - labels0[:, 4] / 2)
-            labels[:, 3] = h * (labels0[:, 3] - labels0[:, 5] / 2)
-            labels[:, 4] = w * (labels0[:, 2] + labels0[:, 4] / 2)
-            labels[:, 5] = h * (labels0[:, 3] + labels0[:, 5] / 2)
-        else:
-            raise ValueError('invalid label path: {}'.format(label_path))
-        video_name = '/'.join(label_path.split('/')[:-1])
-        obj_idx_offset = self.video_dict[video_name] * 100000  # 100000 unique ids is enough for a video.
+        labels = loadmat(label_path) 
+        _boxes = self._read_boxes(boxes_path) 
+        video_name = str(Path(img_path).parent)
+        obj_idx_offset = (self.video_dict[video_name] + 1) * 100000  # 100000 unique ids is enough for a video.
         targets['boxes'] = []
         targets['area'] = []
         targets['iscrowd'] = []
@@ -148,22 +174,24 @@ class YCBV:
         targets['image_id'] = torch.as_tensor(idx)
         targets['size'] = torch.as_tensor([h, w])
         targets['orig_size'] = torch.as_tensor([h, w])
-        for label in labels:
-            targets['boxes'].append(label[2:6].tolist())
-            targets['area'].append(label[4] * label[5])
-            targets['iscrowd'].append(0)
-            targets['labels'].append(0)
-            obj_id = label[1] + obj_idx_offset if label[1] >= 0 else label[1]
-            targets['obj_ids'].append(obj_id)  # relative id
+        targets['poses'] = torch.tensor(labels['poses']).permute(2,0,1) # NX3X4 objects 
+        cls_ids = np.squeeze(labels['cls_indexes']).tolist()
+        boxes = []
+        for idx in cls_ids:
+            _bb = _boxes[self.obj_id_to_name[idx]]
+            _xywh = [_bb[0], _bb[1], _bb[2] - _bb[0], _bb[3] - _bb[1]]
+            boxes.append(_xywh)
 
-        import ipdb; ipdb.set_trace()
-        targets['area'] = torch.as_tensor(targets['area'])
-        targets['iscrowd'] = torch.as_tensor(targets['iscrowd'])
-        targets['labels'] = torch.as_tensor(targets['labels'])
-        targets['obj_ids'] = torch.as_tensor(targets['obj_ids'])
-        targets['boxes'] = torch.as_tensor(targets['boxes'], dtype=torch.float32).reshape(-1, 4)
+        targets['boxes'] = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4)
         targets['boxes'][:, 0::2].clamp_(min=0, max=w)
         targets['boxes'][:, 1::2].clamp_(min=0, max=h)
+        targets['obj_ids'] = torch.as_tensor(cls_ids, dtype=torch.int32).reshape(-1, 1) + obj_idx_offset
+        targets['labels'] = torch.as_tensor(cls_ids, dtype=torch.int32).reshape(-1, 1) 
+        targets['area'] = (targets['boxes'][:, 2] * targets['boxes'][:,3]).reshape(-1, 1)
+        targets['iscrowd'] = torch.zeros_like(targets['labels'])
+        # import ipdb; ipdb.set_trace()
+        # print()
+
         return img, targets
 
     def _get_sample_range(self, start_idx):
@@ -241,11 +269,21 @@ def make_detmot_transforms(image_set, args=None):
 
     raise ValueError(f'unknown {image_set}')
 
+def get_ycbv_transforms():
+    
+    import datasets.transforms as T
+    normalize = T.MotCompose([
+        T.MotToTensor(),
+        T.MotNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+    transforms = T.MotCompose([normalize])
+    return transforms
+
 
 def build(image_set, args):
     root = Path(args.mot_path)
     assert root.exists(), f'provided MOT path {root} does not exist'
-    transforms = make_detmot_transforms(image_set, args)
+    transforms = get_ycbv_transforms() 
     if image_set == 'train':
         dataset = YCBV(args, transforms=transforms)
     if image_set == 'val':
@@ -264,11 +302,13 @@ if __name__ == '__main__':
     parser.add_argument("--sampler_steps", type=int, default=[50, 90, 150], nargs="*")
     parser.add_argument("--sample_mode", default="random_interval")
     parser.add_argument("--vis", action='store_true')
-    parser.add_argument("--dataset_path", default="/home/user/amini/datasets/ycbv_coco/train_mini/")
+    parser.add_argument("--dataset_path", default="/home/data/datasets/YCB_Video_Dataset/data/")
+    parser.add_argument("--dataset_desc_file", default="/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc.txt")
     args = parser.parse_args()
-
-    dataset = YCBV(args)
-
+    transforms = get_ycbv_transforms()
+    dataset = YCBV(args, transforms)
+    d = dataset[10]
+    import ipdb; ipdb.set_trace()
 
 
 
