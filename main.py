@@ -159,6 +159,11 @@ def get_args_parser():
                         help="path to dataset txt split")
     parser.add_argument('--img_path', default='data/valid/JPEGImages/')
 
+    # ycbv related params
+    parser.add_argument("--dataset_path", default="/home/data/datasets/YCB_Video_Dataset/data/")
+    parser.add_argument("--dataset_desc_file_train", default="/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_file_mini.txt")
+    parser.add_argument("--dataset_desc_file_val", default="/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_file_mini.txt")
+
     parser.add_argument('--query_interaction_layer', default='QIM', type=str,
                         help="")
     parser.add_argument('--sample_mode', type=str, default='fixed_interval')
@@ -217,7 +222,7 @@ def main(args):
 
     batch_sampler_train = torch.utils.data.BatchSampler(
         sampler_train, args.batch_size, drop_last=True)
-    if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint']:
+    if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
         collate_fn = utils.mot_collate_fn
     else:
         collate_fn = utils.collate_fn
@@ -323,7 +328,7 @@ def main(args):
     start_time = time.time()
     # import ipdb; ipdb.set_trace()
     train_func = train_one_epoch
-    if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint']:
+    if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
         train_func = train_one_epoch_mot
         dataset_train.set_epoch(args.start_epoch)
         dataset_val.set_epoch(args.start_epoch)
@@ -347,7 +352,7 @@ def main(args):
                     'args': args,
                 }, checkpoint_path)
         
-        if args.dataset_file not in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint']:
+        if args.dataset_file not in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
             test_stats, coco_evaluator = evaluate(
                 model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
             )
@@ -371,7 +376,7 @@ def main(args):
                         for name in filenames:
                             torch.save(coco_evaluator.coco_eval["bbox"].eval,
                                        output_dir / "eval" / name)
-        if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint']:
+        if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
             dataset_train.step_epoch()
             dataset_val.step_epoch()
     total_time = time.time() - start_time
