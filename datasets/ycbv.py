@@ -51,7 +51,7 @@ class YCBV:
         self.vis = args.vis
         self.video_names = []
         self.video_dict = {}
-        self.dataset_desc_file = args.dataset_desc_file 
+        self.dataset_desc_file = args.dataset_desc_file_train if args.image_set == "train" else args.dataset_desc_file_val
         self.img_files = []
         
         _dataset_path = Path(args.dataset_path)
@@ -59,7 +59,7 @@ class YCBV:
             import sys
             sys.exit("dataset_path ",dataset_path, " does not exist")
         
-        with open(args.dataset_desc_file, "r") as desc_file:
+        with open(self.dataset_desc_file, "r") as desc_file:
             lines = desc_file.readlines()
             self.video_names += [line.strip() for line in lines]
         
@@ -178,16 +178,16 @@ class YCBV:
         cls_ids = np.squeeze(labels['cls_indexes']).tolist()
         boxes = []
         for idx in cls_ids:
-            _bb = _boxes[self.obj_id_to_name[idx]]
-            _xywh = [_bb[0], _bb[1], _bb[2] - _bb[0], _bb[3] - _bb[1]]
-            boxes.append(_xywh)
+            _bb = _boxes[self.obj_id_to_name[idx]] # NOTE: _bb is in x1y1x2y2 format
+            # _xywh = [_bb[0], _bb[1], _bb[2] - _bb[0], _bb[3] - _bb[1]]
+            boxes.append(_bb)
 
         targets['boxes'] = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4)
         targets['boxes'][:, 0::2].clamp_(min=0, max=w)
         targets['boxes'][:, 1::2].clamp_(min=0, max=h)
-        targets['obj_ids'] = torch.as_tensor(cls_ids, dtype=torch.int32).reshape(-1, 1) + obj_idx_offset
-        targets['labels'] = torch.as_tensor(cls_ids, dtype=torch.int32).reshape(-1, 1) 
-        targets['area'] = (targets['boxes'][:, 2] * targets['boxes'][:,3]).reshape(-1, 1)
+        targets['obj_ids'] = torch.as_tensor(cls_ids, dtype=torch.int64).reshape(-1, 1).squeeze() + obj_idx_offset
+        targets['labels'] = torch.as_tensor(cls_ids, dtype=torch.int64).reshape(-1, 1).squeeze()
+        targets['area'] = (targets['boxes'][:, 2] * targets['boxes'][:,3]).reshape(-1, 1).squeeze()
         targets['iscrowd'] = torch.zeros_like(targets['labels'])
         # import ipdb; ipdb.set_trace()
         # print()
@@ -282,8 +282,9 @@ def get_ycbv_transforms():
 
 def build(image_set, args):
     root = Path(args.mot_path)
-    assert root.exists(), f'provided MOT path {root} does not exist'
-    transforms = get_ycbv_transforms() 
+    assert root.exists(), f'provided YCBV path {root} does not exist'
+    transforms = get_ycbv_transforms()
+    args.image_set = image_set
     if image_set == 'train':
         dataset = YCBV(args, transforms=transforms)
     if image_set == 'val':
@@ -303,7 +304,9 @@ if __name__ == '__main__':
     parser.add_argument("--sample_mode", default="random_interval")
     parser.add_argument("--vis", action='store_true')
     parser.add_argument("--dataset_path", default="/home/data/datasets/YCB_Video_Dataset/data/")
-    parser.add_argument("--dataset_desc_file", default="/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc.txt")
+    parser.add_argument("--dataset_desc_file_train", default="/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_mini.txt")
+    parser.add_argument("--image_set", default="train")
+
     args = parser.parse_args()
     transforms = get_ycbv_transforms()
     dataset = YCBV(args, transforms)

@@ -14,6 +14,7 @@ import torchvision
 from .coco import build as build_coco
 from .detmot import build as build_e2e_mot
 from .static_detmot import build as build_e2e_static_mot
+from .ycbv import build as build_ycbv
 from .joint import build as build_e2e_joint
 from .torchvision_datasets import CocoDetection
 
@@ -28,6 +29,8 @@ def get_coco_api_from_dataset(dataset):
 
 
 def build_dataset(image_set, args):
+    if args.dataset_file == 'ycbv':
+        return build_ycbv(image_set, args)
     if args.dataset_file == 'coco':
         return build_coco(image_set, args)
     if args.dataset_file == 'coco_panoptic':
