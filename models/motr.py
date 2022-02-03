@@ -622,6 +622,7 @@ def build(args):
         'e2e_mot': 1,
         'e2e_joint': 1,
         'e2e_static_mot': 1,
+        'ycbv': 22 # follows ycbv convention 21 objects but 0 is background
     }
     assert args.dataset_file in dataset_to_num_classes
     num_classes = dataset_to_num_classes[args.dataset_file]
