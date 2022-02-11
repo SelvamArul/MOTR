@@ -27,7 +27,7 @@ from util.tool import load_model
 import util.misc as utils
 import datasets.samplers as samplers
 from datasets import build_dataset, get_coco_api_from_dataset
-from engine import evaluate, train_one_epoch, train_one_epoch_mot
+from engine import evaluate, train_one_epoch, train_one_epoch_mot, eval_mot
 from models import build_model
 
 
@@ -40,9 +40,9 @@ def get_args_parser():
     parser.add_argument('--lr_linear_proj_mult', default=0.1, type=float)
     parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
-    parser.add_argument('--epochs', default=50, type=int)
+    parser.add_argument('--epochs', default=100, type=int)
     parser.add_argument('--lr_drop', default=40, type=int)
-    parser.add_argument('--save_period', default=50, type=int)
+    parser.add_argument('--save_period', default=5, type=int)
     parser.add_argument('--lr_drop_epochs', default=None, type=int, nargs='+')
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
                         help='gradient clipping max norm')
@@ -208,7 +208,6 @@ def main(args):
 
     dataset_train = build_dataset(image_set='train', args=args)
     dataset_val = build_dataset(image_set='val', args=args)
-
     if args.distributed:
         if args.cache_mode:
             sampler_train = samplers.NodeDistributedSampler(dataset_train)
@@ -227,7 +226,7 @@ def main(args):
     else:
         collate_fn = utils.collate_fn
 
-    args.num_workers = 0
+    # args.num_workers = 0
 
     data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
                                    collate_fn=collate_fn, num_workers=args.num_workers,
@@ -318,11 +317,12 @@ def main(args):
             args.start_epoch = checkpoint['epoch'] + 1
     
     if args.eval:
-        test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
-                                              data_loader_val, base_ds, device, args.output_dir)
-        if args.output_dir:
-            utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, output_dir / "eval.pth")
-        return
+        pass
+        # test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
+        #                                       data_loader_val, base_ds, device, args.output_dir)
+        # if args.output_dir:
+        #     utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, output_dir / "eval.pth")
+        # return
 
     print("Start training")
     start_time = time.time()
@@ -330,8 +330,11 @@ def main(args):
     train_func = train_one_epoch
     if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
         train_func = train_one_epoch_mot
+        val_func = eval_mot # TODO val function for non ycbv cases?
+
         dataset_train.set_epoch(args.start_epoch)
         dataset_val.set_epoch(args.start_epoch)
+    output_dir.mkdir(exist_ok=True)
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             sampler_train.set_epoch(epoch)
@@ -341,8 +344,25 @@ def main(args):
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth']
             # extra checkpoint before LR drop and every 5 epochs
-            if (epoch + 1) % args.lr_drop == 0 or (epoch + 1) % args.save_period == 0 or (((args.epochs >= 100 and (epoch + 1) > 100) or args.epochs < 100) and (epoch + 1) % 5 == 0):
+            
+            
+            # if (epoch + 1) % args.lr_drop == 0 or (epoch + 1) % args.save_period == 0 or (((args.epochs >= 100 and (epoch + 1) > 100) or args.epochs < 100) and (epoch + 1) % 5 == 0):
+            if epoch == 0 or (epoch + 1) % args.save_period == 0:
                 checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
+
+                # validation
+                val_stats = val_func(model, criterion, data_loader_val, device, epoch) 
+
+
+                log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+                             **{f'test_{k}': v for k, v in val_stats.items()},
+                             'epoch': epoch,
+                             'n_parameters': n_parameters}
+                # import ipdb; ipdb.set_trace()
+                if args.output_dir and utils.is_main_process():
+                    with (output_dir / "log.txt").open("a") as f:
+                        f.write(json.dumps(log_stats) + "\n")
+
             for checkpoint_path in checkpoint_paths:
                 utils.save_on_master({
                     'model': model_without_ddp.state_dict(),
@@ -352,30 +372,6 @@ def main(args):
                     'args': args,
                 }, checkpoint_path)
         
-        if args.dataset_file not in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
-            test_stats, coco_evaluator = evaluate(
-                model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
-            )
-
-            log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                         **{f'test_{k}': v for k, v in test_stats.items()},
-                         'epoch': epoch,
-                         'n_parameters': n_parameters}
-
-            if args.output_dir and utils.is_main_process():
-                with (output_dir / "log.txt").open("a") as f:
-                    f.write(json.dumps(log_stats) + "\n")
-
-                # for evaluation logs
-                if coco_evaluator is not None:
-                    (output_dir / 'eval').mkdir(exist_ok=True)
-                    if "bbox" in coco_evaluator.coco_eval:
-                        filenames = ['latest.pth']
-                        if epoch % 50 == 0:
-                            filenames.append(f'{epoch:03}.pth')
-                        for name in filenames:
-                            torch.save(coco_evaluator.coco_eval["bbox"].eval,
-                                       output_dir / "eval" / name)
         if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
             dataset_train.step_epoch()
             dataset_val.step_epoch()

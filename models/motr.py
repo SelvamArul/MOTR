@@ -599,7 +599,7 @@ class MOTR(nn.Module):
         }
 
         track_instances = self._generate_empty_tracks()
-        print ("forward ", "-"*15)
+        # print ("forward ", "-"*15)
         for frame in frames:
             if not isinstance(frame, NestedTensor):
                 frame = nested_tensor_from_tensor_list([frame])
@@ -609,6 +609,11 @@ class MOTR(nn.Module):
             outputs['pred_boxes'].append(frame_res['pred_boxes'])
 
         if not self.training:
+            
+            # TODO HACK: Find a better logic
+            outputs['losses_dict'] = self.criterion.losses_dict
+
+
             outputs['track_instances'] = track_instances
         else:
             outputs['losses_dict'] = self.criterion.losses_dict

@@ -147,10 +147,51 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
+def eval_mot(model: torch.nn.Module, criterion: torch.nn.Module,
+                    data_loader: Iterable,
+                    device: torch.device, epoch: int):
+    model.eval()
+    criterion.eval()
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    header = 'Epoch: [{}]'.format(epoch)
+    print_freq = 10
+    for data_dict in metric_logger.log_every(data_loader, print_freq, header):
+        data_dict = data_dict_to_cuda(data_dict, device)
+        outputs = model(data_dict)
+
+        # import ipdb; ipdb.set_trace()
+        loss_dict = criterion(outputs, data_dict)
+        # print("iter {} after model".format(cnt-1))
+        weight_dict = criterion.weight_dict
+        losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+
+        # reduce losses over all GPUs for logging purposes
+        loss_dict_reduced = utils.reduce_dict(loss_dict)
+        # loss_dict_reduced_unscaled = {f'{k}_unscaled': v
+        #                               for k, v in loss_dict_reduced.items()}
+        loss_dict_reduced_scaled = {k: v * weight_dict[k]
+                                    for k, v in loss_dict_reduced.items() if k in weight_dict}
+        losses_reduced_scaled = sum(loss_dict_reduced_scaled.values())
+
+        loss_value = losses_reduced_scaled.item()
+
+        if not math.isfinite(loss_value):
+            print("Loss is {}, stopping training".format(loss_value))
+            print(loss_dict_reduced)
+            sys.exit(1)
+
+        metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
+        # gather the stats from all processes
+
+    metric_logger.synchronize_between_processes()
+    print("Averaged stats:", metric_logger)
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
+@torch.no_grad()
 def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir):
     model.eval()
     criterion.eval()
-
+    import ipdb; ipdb.set_trace()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Test:'
