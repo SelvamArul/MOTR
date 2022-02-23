@@ -156,3 +156,4 @@ cython_debug/
 *.swp
 models/ckpts
 exps
+logs
