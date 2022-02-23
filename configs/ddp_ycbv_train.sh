@@ -10,10 +10,11 @@
 
 PRETRAIN=/home/user/periyasa/workspace/MOTR/models/ckpts/r50_deformable_detr_plus_iterative_bbox_refinement-checkpoint.pth
 EXP_DIR=exps/ddp_ycbv_full
-python /home/user/periyasa/anaconda3/lib/python3.9/site-packages/torch/distributed/launch.py main.py \
+python -m torch.distributed.launch --nproc_per_node=8 \
+    --use_env main.py \
     --meta_arch motr \
     --dataset_file ycbv\
-    --dataset_path '/home/cache/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/'\
+    --dataset_path '/home/cache/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/'\
     --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_train.txt'\
     --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_val.txt'\
     --epoch 200 \
@@ -37,5 +38,5 @@ python /home/user/periyasa/anaconda3/lib/python3.9/site-packages/torch/distribut
     --extra_track_attn \
     --data_txt_path_train ./datasets/data_path/mot17.train \
     --data_txt_path_val ./datasets/data_path/mot17.train \
-    --mot_path /home/data/datasets/
+    --mot_path '/home/cache/datasets/YCB_VIDEO_DATASET/'
 
