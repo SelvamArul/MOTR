@@ -188,6 +188,17 @@ def eval_mot(model: torch.nn.Module, criterion: torch.nn.Module,
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 @torch.no_grad()
+def visualize_predictions_mot(model: torch.nn.Module, data_loader: Iterable, device: torch.device):
+    model.eval()
+    
+    for data_dict in data_loader:
+        data_dict = data_dict_to_cuda(data_dict, device)
+        outputs = model(data_dict)
+        import ipdb; ipdb.set_trace()
+        print ("vis  ")
+
+
+@torch.no_grad()
 def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir):
     model.eval()
     criterion.eval()
