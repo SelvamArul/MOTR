@@ -284,8 +284,12 @@ def main(args):
 
     if args.pretrained is not None:
         model_without_ddp = load_model(model_without_ddp, args.pretrained)
-
-    output_dir = Path(args.output_dir)
+    
+    from datetime import datetime
+    dateTimeObj = datetime.now()
+    timestampStr = dateTimeObj.strftime("_%d-%b-%Y_%H:%M")
+    
+    output_dir = Path(args.output_dir + timestampStr)
     if args.resume:
         if args.resume.startswith('https'):
             checkpoint = torch.hub.load_state_dict_from_url(

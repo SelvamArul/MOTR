@@ -15,11 +15,11 @@ def log(metric_log, writer):
         for log_dict in  f.readlines():
             log_dict = json.loads(log_dict.strip())
             epoch = int(log_dict["epoch"]) // 2
-
             if epoch > CURRENT_EPOCH:
                 print (epoch, log_dict["train_loss"], log_dict["test_loss"])
-                writer.add_scalar("Loss/train", log_dict["train_loss"], epoch)
-                writer.add_scalar("Loss/test", log_dict["test_loss"], epoch)
+                for key in log_dict.keys():
+                    if 'loss' in key and 'aux' not in key:  
+                        writer.add_scalar('Loss/' + key, log_dict[key], epoch)
                 CURRENT_EPOCH = epoch
     writer.flush()
 
@@ -33,7 +33,7 @@ if __name__ == '__main__':
     metric_log = Path(args.metric_log)
     if not metric_log.exists():
         import sys
-        sys.exit("In valid metric log path")
+        sys.exit("Invalid metric log path")
     
     writer = SummaryWriter(args.output_path)
     print ("Staring writer") 
