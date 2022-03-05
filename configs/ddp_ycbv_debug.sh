@@ -8,9 +8,9 @@
 
 # for MOT17
 
-EXP_DIR=exps/ddp_ycbv_mini
+EXP_DIR=exps/ddp_ycbv_debug
 python -m torch.distributed.launch --nproc_per_node=8 \
-    --use_env main.py \
+    --use_env debug.py \
     --meta_arch motr \
     --dataset_file ycbv\
     --dataset_path '/home/cache/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/'\

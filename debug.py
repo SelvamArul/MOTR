@@ -27,7 +27,7 @@ from util.tool import load_model
 import util.misc as utils
 import datasets.samplers as samplers
 from datasets import build_dataset, get_coco_api_from_dataset
-from engine import evaluate, train_one_epoch, train_one_epoch_mot, eval_mot
+from engine import evaluate, train_one_epoch, train_one_epoch_mot, eval_mot, debug_mot
 from models import build_model
 
 
@@ -180,6 +180,7 @@ def get_args_parser():
     parser.add_argument('--memory_bank_len', type=int, default=4)
     parser.add_argument('--memory_bank_type', type=str, default=None)
     parser.add_argument('--memory_bank_with_self_attn', action='store_true', default=False)
+    
     return parser
 
 
@@ -190,7 +191,8 @@ def main(args):
     if args.frozen_weights is not None:
         assert args.masks, "Frozen training is meant for segmentation only"
     print(args)
-
+    
+    args.motr_debug = True
     device = torch.device(args.device)
 
     # fix the seed for reproducibility
@@ -227,7 +229,6 @@ def main(args):
         collate_fn = utils.collate_fn
 
     # args.num_workers = 0
-
     data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
                                    collate_fn=collate_fn, num_workers=args.num_workers,
                                    pin_memory=True)
@@ -344,8 +345,12 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             sampler_train.set_epoch(epoch)
+
+        # debug_stats = debug_mot(model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
         train_stats = train_func(
             model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
+        
+        debug_stats = debug_mot(model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
         lr_scheduler.step()
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth']

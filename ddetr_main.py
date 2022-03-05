@@ -1,4 +1,4 @@
-# ------------------------------------------------------------------------
+# -te-----------------------------------------------------------------------
 # Copyright (c) 2021 megvii-model. All Rights Reserved.
 # ------------------------------------------------------------------------
 # Modified from Deformable DETR (https://github.com/fundamentalvision/Deformable-DETR)
@@ -180,6 +180,11 @@ def get_args_parser():
     parser.add_argument('--memory_bank_len', type=int, default=4)
     parser.add_argument('--memory_bank_type', type=str, default=None)
     parser.add_argument('--memory_bank_with_self_attn', action='store_true', default=False)
+    
+
+
+    parser.add_argument('--local_self_attn', action='store_true', default=False)
+    parser.add_argument('--new_frame_adaptor', action='store_true', default=False)
     return parser
 
 
@@ -207,17 +212,17 @@ def main(args):
     print('number of params:', n_parameters)
 
     dataset_train = build_dataset(image_set='train', args=args)
-    dataset_val = build_dataset(image_set='val', args=args)
+    # dataset_val = build_dataset(image_set='val', args=args)
     if args.distributed:
         if args.cache_mode:
             sampler_train = samplers.NodeDistributedSampler(dataset_train)
-            sampler_val = samplers.NodeDistributedSampler(dataset_val, shuffle=False)
+            # sampler_val = samplers.NodeDistributedSampler(dataset_val, shuffle=False)
         else:
             sampler_train = samplers.DistributedSampler(dataset_train)
-            sampler_val = samplers.DistributedSampler(dataset_val, shuffle=False)
+            # sampler_val = samplers.DistributedSampler(dataset_val, shuffle=False)
     else:
         sampler_train = torch.utils.data.RandomSampler(dataset_train)
-        sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+        # sampler_val = torch.utils.data.SequentialSampler(dataset_val)
 
     batch_sampler_train = torch.utils.data.BatchSampler(
         sampler_train, args.batch_size, drop_last=True)
@@ -230,10 +235,10 @@ def main(args):
 
     data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
                                    collate_fn=collate_fn, num_workers=args.num_workers,
-                                   pin_memory=True)
-    data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
-                                 drop_last=False, collate_fn=collate_fn, num_workers=args.num_workers,
-                                 pin_memory=True)
+                                   pin_memory=False)
+    # data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
+    #                              drop_last=False, collate_fn=collate_fn, num_workers=args.num_workers,
+    #                              pin_memory=True)
 
     def match_name_keywords(n, name_keywords):
         out = False
@@ -271,12 +276,12 @@ def main(args):
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
         model_without_ddp = model.module
 
-    if args.dataset_file == "coco_panoptic":
-        # We also evaluate AP during panoptic training, on original coco DS
-        coco_val = datasets.coco.build("val", args)
-        base_ds = get_coco_api_from_dataset(coco_val)
-    else:
-        base_ds = get_coco_api_from_dataset(dataset_val)
+    # if args.dataset_file == "coco_panoptic":
+    #     # We also evaluate AP during panoptic training, on original coco DS
+    #     coco_val = datasets.coco.build("val", args)
+    #     base_ds = get_coco_api_from_dataset(coco_val)
+    # else:
+    #     base_ds = get_coco_api_from_dataset(dataset_val)
 
     if args.frozen_weights is not None:
         checkpoint = torch.load(args.frozen_weights, map_location='cpu')
@@ -339,7 +344,7 @@ def main(args):
         val_func = eval_mot # TODO val function for non ycbv cases?
 
         dataset_train.set_epoch(args.start_epoch)
-        dataset_val.set_epoch(args.start_epoch)
+        # dataset_val.set_epoch(args.start_epoch)
     output_dir.mkdir(exist_ok=True)
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
@@ -353,15 +358,13 @@ def main(args):
             
             
             # if (epoch + 1) % args.lr_drop == 0 or (epoch + 1) % args.save_period == 0 or (((args.epochs >= 100 and (epoch + 1) > 100) or args.epochs < 100) and (epoch + 1) % 5 == 0):
-            if epoch == 0 or (epoch + 1) % args.save_period == 0:
+            # if epoch == 0 or (epoch + 1) % args.save_period == 0:
+            if True:
                 checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
-
-                # validation
-                val_stats = val_func(model, criterion, data_loader_val, device, epoch) 
 
 
                 log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                             **{f'test_{k}': v for k, v in val_stats.items()},
+                             # **{f'test_{k}': v for k, v in val_stats.items()},
                              'epoch': epoch,
                              'n_parameters': n_parameters}
                 # import ipdb; ipdb.set_trace()
@@ -380,7 +383,7 @@ def main(args):
         
         if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
             dataset_train.step_epoch()
-            dataset_val.step_epoch()
+            # dataset_val.step_epoch()
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))

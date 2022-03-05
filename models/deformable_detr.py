@@ -351,7 +351,7 @@ class SetCriterion(nn.Module):
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
 
-    def forward(self, outputs, targets):
+    def forward(self, outputs, _targets):
         """ This performs the loss computation.
         Parameters:
              outputs: dict of tensors, see the output specification of the model for the format
@@ -361,7 +361,14 @@ class SetCriterion(nn.Module):
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs' and k != 'enc_outputs'}
 
         # Retrieve the matching between the outputs of the last layer and the targets
-        indices = self.matcher(outputs_without_aux, targets)
+        indices = self.matcher(outputs_without_aux, _targets)
+
+
+        # ARUL convert from Instances to list od dict
+        targets = []
+        for t in _targets:
+            targets.append({'labels':t.labels,
+                            'boxes':t.boxes})
 
         # Compute the average number of target boxes accross all nodes, for normalization purposes
         num_boxes = sum(len(t["labels"]) for t in targets)
@@ -471,6 +478,8 @@ def build(args):
         num_classes = 1
     if args.dataset_file == 'e2e_mot':
         num_classes = 1
+    if args.dataset_file == 'ycbv':
+        num_classes = 22 # follows YCBV dataset conventin. Only 21 objects but class 0 is background
     device = torch.device(args.device)
 
     backbone = build_backbone(args)
