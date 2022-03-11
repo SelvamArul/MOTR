@@ -163,6 +163,17 @@ class YCBV:
         boxes_path = img_path[:-10] + "-box.txt"
 
         labels = loadmat(label_path) 
+        
+        # filter out all objects that are outside of field of view
+        valid_cls_ids = torch.ones(labels['cls_indexes'].squeeze().shape[0], dtype=torch.bool)
+        for idx in range(valid_cls_ids.shape[0]):
+            center = labels['center'][idx]
+            if center[0] >= w or center[1] >= h:
+                valid_cls_ids[idx] = False
+        labels['cls_indexes'] = labels['cls_indexes'][valid_cls_ids.numpy()]
+
+
+
         _boxes = self._read_boxes(boxes_path) 
         video_name = str(Path(img_path).parent)
         obj_idx_offset = (self.video_dict[video_name] + 1) * 100000  # 100000 unique ids is enough for a video.
@@ -174,7 +185,11 @@ class YCBV:
         targets['image_id'] = torch.as_tensor(idx)
         targets['size'] = torch.as_tensor([h, w])
         targets['orig_size'] = torch.as_tensor([h, w])
-        targets['poses'] = torch.tensor(labels['poses']).permute(2,0,1) # NX3X4 objects 
+        targets['poses'] = torch.tensor(labels['poses']).permute(2,0,1) # NX3X4 objects
+       
+        # filter out all objects that are outside of field of view
+        targets['poses'] = targets['poses'][valid_cls_ids]
+
         cls_ids = np.squeeze(labels['cls_indexes']).tolist()
         boxes = []
         for idx in cls_ids:
@@ -216,10 +231,11 @@ class YCBV:
 
     def __getitem__(self, idx):
         sample_start, sample_end, sample_interval = self._get_sample_range(idx)
-        images, targets = self.pre_continuous_frames(sample_start, sample_end, sample_interval)
+        x_images, x_targets = self.pre_continuous_frames(sample_start, sample_end, sample_interval)
         data = {}
         if self._transforms is not None:
-            images, targets = self._transforms(images, targets)
+            images, targets = self._transforms(x_images, x_targets)
+        # import ipdb; ipdb.set_trace()
         gt_instances = []
         for img_i, targets_i in zip(images, targets):
             gt_instances_i = self._targets_to_instances(targets_i, img_i.shape[1:3])
