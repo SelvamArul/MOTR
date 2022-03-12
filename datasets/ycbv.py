@@ -165,12 +165,12 @@ class YCBV:
         labels = loadmat(label_path) 
         
         # filter out all objects that are outside of field of view
-        valid_cls_ids = torch.ones(labels['cls_indexes'].squeeze().shape[0], dtype=torch.bool)
+        valid_cls_ids = torch.ones(labels['cls_indexes'].squeeze(axis=1).shape[0], dtype=torch.bool)
         for _idx in range(valid_cls_ids.shape[0]):
             center = labels['center'][_idx]
             if center[0] >= w or center[1] >= h:
                 valid_cls_ids[_idx] = False
-        labels['cls_indexes'] = labels['cls_indexes'].squeeze(axis=0)[valid_cls_ids.numpy()]
+        labels['cls_indexes'] = labels['cls_indexes'].squeeze(axis=1)[valid_cls_ids.numpy()]
 
         _boxes = self._read_boxes(boxes_path) 
         video_name = str(Path(img_path).parent)
