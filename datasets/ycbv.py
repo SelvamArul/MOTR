@@ -202,9 +202,10 @@ class YCBV:
         targets['boxes'] = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4)
         targets['boxes'][:, 0::2].clamp_(min=0, max=w)
         targets['boxes'][:, 1::2].clamp_(min=0, max=h)
-        targets['obj_ids'] = torch.as_tensor(cls_ids, dtype=torch.int64).reshape(-1, 1).squeeze() + obj_idx_offset
-        targets['labels'] = torch.as_tensor(cls_ids, dtype=torch.int64).reshape(-1, 1).squeeze()
-        targets['area'] = (targets['boxes'][:, 2] * targets['boxes'][:,3]).reshape(-1, 1).squeeze()
+        # import ipdb; ipdb.set_trace()
+        targets['obj_ids'] = torch.as_tensor(cls_ids, dtype=torch.int64) + obj_idx_offset
+        targets['labels'] = torch.as_tensor(cls_ids, dtype=torch.int64)
+        targets['area'] = (targets['boxes'][:, 2] * targets['boxes'][:,3])
         targets['iscrowd'] = torch.zeros_like(targets['labels'])
         # import ipdb; ipdb.set_trace()
         # print()
