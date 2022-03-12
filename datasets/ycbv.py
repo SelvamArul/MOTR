@@ -166,13 +166,11 @@ class YCBV:
         
         # filter out all objects that are outside of field of view
         valid_cls_ids = torch.ones(labels['cls_indexes'].squeeze().shape[0], dtype=torch.bool)
-        for idx in range(valid_cls_ids.shape[0]):
-            center = labels['center'][idx]
+        for _idx in range(valid_cls_ids.shape[0]):
+            center = labels['center'][_idx]
             if center[0] >= w or center[1] >= h:
-                valid_cls_ids[idx] = False
-        labels['cls_indexes'] = labels['cls_indexes'][valid_cls_ids.numpy()]
-
-
+                valid_cls_ids[_idx] = False
+        labels['cls_indexes'] = labels['cls_indexes'].squeeze(axis=0)[valid_cls_ids.numpy()]
 
         _boxes = self._read_boxes(boxes_path) 
         video_name = str(Path(img_path).parent)
@@ -190,13 +188,17 @@ class YCBV:
         # filter out all objects that are outside of field of view
         targets['poses'] = targets['poses'][valid_cls_ids]
 
-        cls_ids = np.squeeze(labels['cls_indexes']).tolist()
+        cls_ids = labels['cls_indexes'].tolist()
         boxes = []
-        for idx in cls_ids:
-            _bb = _boxes[self.obj_id_to_name[idx]] # NOTE: _bb is in x1y1x2y2 format
-            # _xywh = [_bb[0], _bb[1], _bb[2] - _bb[0], _bb[3] - _bb[1]]
-            boxes.append(_bb)
-
+        try:
+            for _idx in cls_ids:
+                _bb = _boxes[self.obj_id_to_name[_idx]] # NOTE: _bb is in x1y1x2y2 format
+                # _xywh = [_bb[0], _bb[1], _bb[2] - _bb[0], _bb[3] - _bb[1]]
+                boxes.append(_bb)
+        except Exception as e:
+            print (e)
+            import ipdb; ipdb.set_trace()
+            print ()
         targets['boxes'] = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4)
         targets['boxes'][:, 0::2].clamp_(min=0, max=w)
         targets['boxes'][:, 1::2].clamp_(min=0, max=h)
@@ -231,19 +233,23 @@ class YCBV:
 
     def __getitem__(self, idx):
         sample_start, sample_end, sample_interval = self._get_sample_range(idx)
-        x_images, x_targets = self.pre_continuous_frames(sample_start, sample_end, sample_interval)
+        images, targets = self.pre_continuous_frames(sample_start, sample_end, sample_interval)
         data = {}
         if self._transforms is not None:
-            images, targets = self._transforms(x_images, x_targets)
+            images, targets = self._transforms(images, targets)
         # import ipdb; ipdb.set_trace()
-        gt_instances = []
-        for img_i, targets_i in zip(images, targets):
-            gt_instances_i = self._targets_to_instances(targets_i, img_i.shape[1:3])
-            gt_instances.append(gt_instances_i)
-        data.update({
-            'imgs': images,
-            'gt_instances': gt_instances,
-        })
+        try:
+            gt_instances = []
+            for img_i, targets_i in zip(images, targets):
+                gt_instances_i = self._targets_to_instances(targets_i, img_i.shape[1:3])
+                gt_instances.append(gt_instances_i)
+            data.update({
+                'imgs': images,
+                'gt_instances': gt_instances,
+            })
+        except Exception as e:
+            print (e)
+            import ipdb; ipdb.set_trace()
         if self.args.vis:
             data['ori_img'] = [target_i['ori_img'] for target_i in targets]
         return data
@@ -297,8 +303,8 @@ def get_ycbv_transforms():
 
 
 def build(image_set, args):
-    root = Path(args.mot_path)
-    assert root.exists(), f'provided YCBV path {root} does not exist'
+    # root = Path(args.mot_path)
+    # assert root.exists(), f'provided YCBV path {root} does not exist'
     transforms = get_ycbv_transforms()
     args.image_set = image_set
     if image_set == 'train':
