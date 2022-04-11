@@ -16,8 +16,9 @@ python -m torch.distributed.launch --nproc_per_node=8 \
     --dataset_path '/home/cache/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/'\
     --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_train.txt'\
     --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_val.txt'\
+    --resume '/home/user/periyasa/workspace/MOTR/exps/ycbv_ddetr_full_12-Mar-2022_11:01/checkpoint.pth'\
     --epoch 200 \
-    --num_workers 8 \
+    --num_workers 12 \
     --with_box_refine \
     --lr_drop 100 \
     --lr 2e-4 \
@@ -27,7 +28,7 @@ python -m torch.distributed.launch --nproc_per_node=8 \
     --sample_mode 'random_interval' \
     --sample_interval 2 \
     --sampler_steps 1 2 \
-    --sampler_lengths 8 8 8 \
+    --sampler_lengths 4 4 4 \
     --update_query_pos \
     --merger_dropout 0 \
     --dropout 0 \

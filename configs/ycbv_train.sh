@@ -13,10 +13,10 @@ EXP_DIR=exps/ycbv_full
 python3 main.py \
     --meta_arch motr \
     --dataset_file ycbv\
-    --dataset_path '/home/data/datasets/YCB_Video_Dataset/data/'\
+    --dataset_path '/home/cache/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/'\
     --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_train.txt'\
     --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_val.txt'\
-    --epoch 200 \
+    --epoch 100 \
     --with_box_refine \
     --lr_drop 100 \
     --lr 2e-4 \
@@ -37,5 +37,4 @@ python3 main.py \
     --extra_track_attn \
     --data_txt_path_train ./datasets/data_path/mot17.train \
     --data_txt_path_val ./datasets/data_path/mot17.train \
-    --mot_path /home/data/datasets/
-
+    --mot_path '/home/cache/datasets/YCB_VIDEO_DATASET/'

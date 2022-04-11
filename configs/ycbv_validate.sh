@@ -15,7 +15,7 @@ python validation.py\
     --dataset_path '/home/cache/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/'\
     --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_mini.txt'\
     --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_mini.txt'\
-    --resume '/home/user/periyasa/workspace/MOTR/exps/ddp_ycbv_from_scratch_30-Mar-2022_15:10/checkpoint.pth' \
+    --resume '/home/user/periyasa/workspace/MOTR/exps/ddp_ycbv_from_scratch_06-Apr-2022_12:06/checkpoint.pth' \
     --epoch 200 \
     --with_box_refine \
     --lr_drop 100 \
