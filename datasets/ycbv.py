@@ -57,7 +57,7 @@ class YCBV:
         _dataset_path = Path(args.dataset_path)
         if not _dataset_path.exists():
             import sys
-            sys.exit("dataset_path ",dataset_path, " does not exist")
+            sys.exit("dataset_path "+ str(_dataset_path)+ " does not exist")
         
         with open(self.dataset_desc_file, "r") as desc_file:
             lines = desc_file.readlines()
