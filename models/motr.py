@@ -53,9 +53,14 @@ class ClipMatcher(SetCriterion):
         self.matcher = matcher
         self.weight_dict = weight_dict
         self.losses = losses
-        self.focal_loss = True
+        self.focal_loss = False
         self.losses_dict = {}
         self._current_frame_idx = 0
+
+        empty_weight = torch.ones(self.num_classes)
+        empty_weight[-1] = 0.1
+        self.register_buffer('empty_weight', empty_weight)
+
 
     def initialize_for_single_clip(self, gt_instances: List[Instances]):
         self.gt_instances = gt_instances
@@ -139,9 +144,10 @@ class ClipMatcher(SetCriterion):
         """Classification loss (NLL)
         targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
         """
+        # import ipdb; ipdb.set_trace()
         src_logits = outputs['pred_logits']
         idx = self._get_src_permutation_idx(indices)
-        target_classes = torch.full(src_logits.shape[:2], self.num_classes,
+        target_classes = torch.full(src_logits.shape[:2], self.num_classes - 1,  # FIXME check if this logic is correct
                                     dtype=torch.int64, device=src_logits.device)
         # The matched gt for disappear track query is set -1.
         labels = []
@@ -153,7 +159,7 @@ class ClipMatcher(SetCriterion):
             labels.append(labels_per_img)
         target_classes_o = torch.cat(labels)
         target_classes[idx] = target_classes_o
-        if self.focal_loss:
+        if self.focal_loss: # TODO check this logic
             gt_labels_target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[:, :, :-1]  # no loss for the last (background) class
             gt_labels_target = gt_labels_target.to(src_logits)
             loss_ce = sigmoid_focal_loss(src_logits.flatten(1),
@@ -591,6 +597,7 @@ class MOTR(nn.Module):
 
     def forward(self, data: dict):
         if self.training:
+            # import ipdb; ipdb.set_trace()
             self.criterion.initialize_for_single_clip(data['gt_instances'])
         frames = data['imgs']  # list of Tensor.
         outputs = {
@@ -627,7 +634,7 @@ def build(args):
         'e2e_mot': 1,
         'e2e_joint': 1,
         'e2e_static_mot': 1,
-        'ycbv': 22 # follows ycbv convention 21 objects but 0 is background
+        'ycbv': 23 # follows ycbv convention 21 objects but 0 is background
     }
     assert args.dataset_file in dataset_to_num_classes
     num_classes = dataset_to_num_classes[args.dataset_file]
