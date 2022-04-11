@@ -19,6 +19,11 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+
+torch.multiprocessing.set_sharing_strategy('file_system')
+
+
 from torch.utils.data import DataLoader
 import datasets
 
