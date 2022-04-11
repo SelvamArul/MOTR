@@ -364,7 +364,7 @@ def main(args):
                 checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
 
                 # validation
-                val_stats = val_func(model, criterion, data_loader_val, device) 
+                val_stats = val_func(model, criterion, data_loader_val, device, args.output_dir) 
 
 
                 log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
