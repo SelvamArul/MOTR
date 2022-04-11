@@ -112,7 +112,12 @@ class HungarianMatcher(nn.Module):
             else:
                 sizes = [len(v["boxes"]) for v in targets]
 
-            indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
+            try:
+                indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
+            except Exception as e:
+                print ("Exception", e )
+                import ipdb; ipdb.set_trace()
+                print()
             return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
 
 
