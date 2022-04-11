@@ -479,7 +479,7 @@ def build(args):
     if args.dataset_file == 'e2e_mot':
         num_classes = 1
     if args.dataset_file == 'ycbv':
-        num_classes = 22 # follows YCBV dataset conventin. Only 21 objects but class 0 is background
+        num_classes = 23 # follows YCBV dataset convention. Only 21 objects but class 0 is background and 23 is NULL class
     device = torch.device(args.device)
 
     backbone = build_backbone(args)
@@ -515,6 +515,7 @@ def build(args):
     if args.masks:
         losses += ["masks"]
     # num_classes, matcher, weight_dict, losses, focal_alpha=0.25
+    # import ipdb; ipdb.set_trace()
     if args.mix_match:
         criterion = MixSetCriterion(num_classes, matcher, weight_dict, losses, focal_alpha=args.focal_alpha)
     else:

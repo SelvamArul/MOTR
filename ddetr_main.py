@@ -27,9 +27,10 @@ from util.tool import load_model
 import util.misc as utils
 import datasets.samplers as samplers
 from datasets import build_dataset, get_coco_api_from_dataset
-from engine import evaluate, train_one_epoch, train_one_epoch_mot, eval_mot
+from engine import evaluate, train_one_epoch, train_one_epoch_ddetr, eval_mot
 from models import build_model
 
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Deformable DETR Detector', add_help=False)
@@ -340,7 +341,7 @@ def main(args):
     # import ipdb; ipdb.set_trace()
     train_func = train_one_epoch
     if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
-        train_func = train_one_epoch_mot
+        train_func = train_one_epoch_ddetr
         val_func = eval_mot # TODO val function for non ycbv cases?
 
         dataset_train.set_epoch(args.start_epoch)
