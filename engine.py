@@ -212,20 +212,35 @@ def eval_mot_bbox(model: torch.nn.Module,
     # wand.init(project="bbox_eval",
     #         name=exp_name)
 
-    
+    def compute_cardinality_error(outputs, data_dict):
+        bs = len(outputs['pred_logits'])
+        _cardinality_error = 0
+        for i in range(bs):
+            _pred_idx = outputs['pred_logits'][i][0].max(dim=-1).indices
+            pred_idx = _pred_idx[_pred_idx != 22]
+            gt_idx = data_dict['gt_instances'][i].get_fields()['labels']
+            pred_idx = pred_idx.sort().values
+            gt_idx = gt_idx.sort().values
+            cardinality_error = abs(len(pred_idx) - len(gt_idx))
+            _cardinality_error += cardinality_error
 
+            print ('cardinality_error : ', cardinality_error)
+            print ('gt_idx', gt_idx.tolist())
+            print ('pred_ids', pred_idx.tolist())
+            return _cardinality_error
     model.train() # TODO
     criterion.train()
     epoch = 0
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     # metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
-    metric_logger.add_meter('grad_norm', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
+    # metric_logger.add_meter('grad_norm', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
-    # import ipdb; ipdb.set_trace()
     # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
-    for data_dict in metric_logger.log_every(data_loader, print_freq, header):
+    # for data_dict in metric_logger.log_every(data_loader, print_freq, header):
+    _card_error = 0
+    for data_dict in data_loader:    
         data_dict = data_dict_to_cuda(data_dict, device)
         outputs = model(data_dict)
 
@@ -249,11 +264,16 @@ def eval_mot_bbox(model: torch.nn.Module,
             print(loss_dict_reduced)
             sys.exit(1)
 
-        metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
-        import ipdb; ipdb.set_trace()        
-    metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+        # metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
+        # metric_logger.update(lr=optimizer.param_groups[0]["lr"])
+        _card_error += compute_cardinality_error(outputs, data_dict)
+        print ()
+
+    print ("Total error ", _card_error)
+    import ipdb; ipdb.set_trace()
+    # metric_logger.synchronize_between_processes()
+    # print("Averaged stats:", metric_logger)
+    return #{k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
 
