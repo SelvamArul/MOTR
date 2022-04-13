@@ -373,7 +373,7 @@ def _get_clones(module, N):
 
 class MOTR(nn.Module):
     def __init__(self, backbone, transformer, num_classes, num_queries, num_feature_levels, criterion, track_embed,
-                 aux_loss=True, with_box_refine=False, two_stage=False, memory_bank=None):
+                 aux_loss=True, with_box_refine=False, two_stage=False, memory_bank=None, enable_pose=False):
         """ Initializes the model.
         Parameters:
             backbone: torch module of the backbone to be used. See backbone.py
@@ -393,6 +393,9 @@ class MOTR(nn.Module):
         self.num_classes = num_classes
         self.class_embed = nn.Linear(hidden_dim, num_classes)
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
+        self.enable_pose = enable_pose
+        if self.enable_pose:
+            self.pose_embed = MLP(hidden_dim, hidden_dim, 6, 3) # 6D rotation parameterization
         self.num_feature_levels = num_feature_levels
         if not two_stage:
             self.query_embed = nn.Embedding(num_queries, hidden_dim * 2)
@@ -428,6 +431,9 @@ class MOTR(nn.Module):
         self.class_embed.bias.data = torch.ones(num_classes) * bias_value
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
+        if enable_pose:
+            nn.init.constant_(self.pose_embed.layers[-1].weight.data, 0)
+            nn.init.constant_(self.pose_embed.layers[-1].bias.data, 0)
         for proj in self.input_proj:
             nn.init.xavier_uniform_(proj[0].weight, gain=1)
             nn.init.constant_(proj[0].bias, 0)
@@ -445,6 +451,11 @@ class MOTR(nn.Module):
             self.class_embed = nn.ModuleList([self.class_embed for _ in range(num_pred)])
             self.bbox_embed = nn.ModuleList([self.bbox_embed for _ in range(num_pred)])
             self.transformer.decoder.bbox_embed = None
+        
+        # pose prediction FFN
+        if enable_pose:
+            self.pose_embed = nn.ModuleList([self.pose_embed for _ in range(num_pred)])
+
         if two_stage:
             # hack implementation for two-stage
             self.transformer.decoder.class_embed = self.class_embed
@@ -518,9 +529,10 @@ class MOTR(nn.Module):
                 pos.append(pos_l)
 
         hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, track_instances.query_pos, ref_pts=track_instances.ref_pts)
-        # import ipdb; ipdb.set_trace()
+        import ipdb; ipdb.set_trace()
         outputs_classes = []
         outputs_coords = []
+        outputs_poses = []
         for lvl in range(hs.shape[0]):
             if lvl == 0:
                 reference = init_reference
@@ -537,13 +549,30 @@ class MOTR(nn.Module):
             outputs_coord = tmp.sigmoid()
             outputs_classes.append(outputs_class)
             outputs_coords.append(outputs_coord)
+
+            # pose FFN
+            if self.enable_pose:
+                outputs_pose = self.pose_embed[lvl](hs[lvl])
+                outputs_poses.append(outputs_pose)
+
         outputs_class = torch.stack(outputs_classes)
         outputs_coord = torch.stack(outputs_coords)
+        
+        if self.enable_pose:
+            outputs_pose = torch.stack(outputs_poses)
 
         ref_pts_all = torch.cat([init_reference[None], inter_references[:, :, :, :2]], dim=0)
+        
+
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1], 'ref_pts': ref_pts_all[5]}
+        if self.enable_pose:
+            out['pred_poses'] = outputs_pose[-1]
         if self.aux_loss:
-            out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
+            if self.enable_pose:
+                # FIXME aux_loss for pose preds 
+                out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
+            else:
+                out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
 
         with torch.no_grad():
             if self.training:
@@ -555,6 +584,10 @@ class MOTR(nn.Module):
         track_instances.pred_logits = outputs_class[-1, 0]
         track_instances.pred_boxes = outputs_coord[-1, 0]
         track_instances.output_embedding = hs[-1, 0]
+        
+        if self.enable_pose:
+            track_instances.pred_poses = outputs_pose[-1, 0]
+
         if self.training:
             # the track id will be assigned by the mather.
             out['track_instances'] = track_instances
