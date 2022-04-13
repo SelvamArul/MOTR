@@ -719,5 +719,6 @@ def build(args):
         with_box_refine=args.with_box_refine,
         two_stage=args.two_stage,
         memory_bank=memory_bank,
+        enable_pose=args.enable_pose,
     )
     return model, criterion, postprocessors
