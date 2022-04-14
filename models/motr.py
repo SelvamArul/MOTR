@@ -33,13 +33,17 @@ from .qim import build as build_query_interaction_layer
 from .memory_bank import build_memory_bank
 from .deformable_detr import SetCriterion, MLP
 from .segmentation import sigmoid_focal_loss
+from .pose import axis_angle_rotate, rotation_6d_rotate, PostProcessPose
 
-
+from util import mesh_tools
 class ClipMatcher(SetCriterion):
     def __init__(self, num_classes,
                         matcher,
                         weight_dict,
-                        losses):
+                        losses,
+                        sym_classes=None,
+                        model_pts=None,
+                        enable_pose=False):
         """ Create the criterion.
         Parameters:
             num_classes: number of object categories, omitting the special no-object category
@@ -60,7 +64,11 @@ class ClipMatcher(SetCriterion):
         empty_weight = torch.ones(self.num_classes)
         empty_weight[-1] = 0.1
         self.register_buffer('empty_weight', empty_weight)
-
+        # self.register_buffer('enable_pose', enable_pose)
+        self.register_buffer('model_pts', model_pts)
+        self.register_buffer('symmetric_classes', torch.as_tensor(sym_classes))
+        
+        self.enable_pose = enable_pose
 
     def initialize_for_single_clip(self, gt_instances: List[Instances]):
         self.gt_instances = gt_instances
@@ -105,6 +113,7 @@ class ClipMatcher(SetCriterion):
             'labels': self.loss_labels,
             'cardinality': self.loss_cardinality,
             'boxes': self.loss_boxes,
+            'poses': self.loss_poses,
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](outputs, gt_instances, indices, num_boxes, **kwargs)
@@ -117,6 +126,7 @@ class ClipMatcher(SetCriterion):
         # We ignore the regression loss of the track-disappear slots.
         #TODO: Make this filter process more elegant.
         filtered_idx = []
+        import ipdb; ipdb.set_trace()
         for src_per_img, tgt_per_img in indices:
             keep = tgt_per_img != -1
             filtered_idx.append((src_per_img[keep], tgt_per_img[keep]))
@@ -139,6 +149,47 @@ class ClipMatcher(SetCriterion):
         losses['loss_giou'] = loss_giou.sum() / num_boxes
 
         return losses
+
+    def loss_poses(self, outputs, targets, indices, num_boxes):
+        
+        filtered_idx = []
+        import ipdb; ipdb.set_trace()
+        for src_per_img, tgt_per_img in indices:
+            keep = tgt_per_img != -1
+            filtered_idx.append((src_per_img[keep], tgt_per_img[keep]))
+        indices = filtered_idx
+        idx = self._get_src_permutation_idx(indices)
+        target_classes = torch.cat([t.labels[J] for t, (_, J) in zip(targets, indices)])
+
+        src_rotations = outputs['pred_rotations'][idx]
+        target_rotations = torch.cat([t.rotations[i] for t, (_, i) in zip(targets, indices)], dim=0)
+
+        src_translations = outputs['pred_translations'][idx] * 1000
+        target_translations = torch.cat([t.translations[i] for t, (_, i) in zip(targets, indices)], dim=0)
+        points = self.models_points[target_classes - 1]
+        src_transformations = rotation_6d_rotate(points, rot6d2mat(src_rotations)) + src_translations.unsqueeze(1)
+        target_transformations = rotation_6d_rotate(points, target_rotations.contiguous().view(-1, 3, 3)) + target_translations.unsqueeze(1)
+
+        diffs = target_classes[:, None] - self.symmetric_classes[None]
+        asyms = target_classes > 0
+        asyms[torch.nonzero(diffs == 0)[:, 0]] = False
+
+        dists = []
+        if torch.bitwise_not(asyms).sum():
+            tmp_sym_dists = []
+            a, b = src_transformations[~asyms], target_transformations[~asyms]
+            for i in range(a.size(0)):
+                tmp_sym_dists.append(torch.norm(a[i].unsqueeze(1) - b[i].unsqueeze(0), p=2, dim=2).min(1)[0])
+            sym_dists = torch.stack(tmp_sym_dists, dim=0)
+            dists.append(sym_dists)  # 2 *
+        if torch.sum(asyms):
+            asym_dists = torch.norm(src_transformations[asyms] - target_transformations[asyms], p=2, dim=2)
+            dists.append(asym_dists)
+
+        losses = {
+            'loss_pose': torch.cat(dists, dim=0).mean(1).sum() / num_boxes
+        }
+        return losses 
 
     def loss_labels(self, outputs, gt_instances: List[Instances], indices, num_boxes, log=False):
         """Classification loss (NLL)
@@ -395,7 +446,8 @@ class MOTR(nn.Module):
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.enable_pose = enable_pose
         if self.enable_pose:
-            self.pose_embed = MLP(hidden_dim, hidden_dim, 6, 3) # 6D rotation parameterization
+            self.rot_embed = MLP(hidden_dim, hidden_dim, 6, 3) # 6D rotation parameterization
+            self.trans_embed = MLP(hidden_dim, hidden_dim, 3, 3) 
         self.num_feature_levels = num_feature_levels
         if not two_stage:
             self.query_embed = nn.Embedding(num_queries, hidden_dim * 2)
@@ -432,8 +484,10 @@ class MOTR(nn.Module):
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
         if enable_pose:
-            nn.init.constant_(self.pose_embed.layers[-1].weight.data, 0)
-            nn.init.constant_(self.pose_embed.layers[-1].bias.data, 0)
+            nn.init.constant_(self.rot_embed.layers[-1].weight.data, 0)
+            nn.init.constant_(self.trans_embed.layers[-1].weight.data, 0)
+            nn.init.constant_(self.rot_embed.layers[-1].bias.data, 0)
+            nn.init.constant_(self.trans_embed.layers[-1].bias.data, 0)
         for proj in self.input_proj:
             nn.init.xavier_uniform_(proj[0].weight, gain=1)
             nn.init.constant_(proj[0].bias, 0)
@@ -454,7 +508,8 @@ class MOTR(nn.Module):
         
         # pose prediction FFN
         if enable_pose:
-            self.pose_embed = nn.ModuleList([self.pose_embed for _ in range(num_pred)])
+            self.rot_embed = nn.ModuleList([self.rot_embed for _ in range(num_pred)])
+            self.trans_embed = nn.ModuleList([self.trans_embed for _ in range(num_pred)])
 
         if two_stage:
             # hack implementation for two-stage
@@ -532,7 +587,8 @@ class MOTR(nn.Module):
         import ipdb; ipdb.set_trace()
         outputs_classes = []
         outputs_coords = []
-        outputs_poses = []
+        outputs_rots = []
+        outputs_trans = []
         for lvl in range(hs.shape[0]):
             if lvl == 0:
                 reference = init_reference
@@ -552,21 +608,25 @@ class MOTR(nn.Module):
 
             # pose FFN
             if self.enable_pose:
-                outputs_pose = self.pose_embed[lvl](hs[lvl])
-                outputs_poses.append(outputs_pose)
+                outputs_rot = self.rot_embed[lvl](hs[lvl])
+                outputs_rots.append(outputs_rot)
+                outputs_tran = self.trans_embed[lvl](hs[lvl])
+                outputs_trans.append(outputs_tran)
 
         outputs_class = torch.stack(outputs_classes)
         outputs_coord = torch.stack(outputs_coords)
         
         if self.enable_pose:
-            outputs_pose = torch.stack(outputs_poses)
+            outputs_rot = torch.stack(outputs_rots)
+            outputs_tran = torch.stack(outputs_trans)
 
         ref_pts_all = torch.cat([init_reference[None], inter_references[:, :, :, :2]], dim=0)
         
 
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1], 'ref_pts': ref_pts_all[5]}
         if self.enable_pose:
-            out['pred_poses'] = outputs_pose[-1]
+            out['pred_translations'] = outputs_tran[-1]
+            out['pred_rotations'] = outputs_rot[-1]
         if self.aux_loss:
             if self.enable_pose:
                 # FIXME aux_loss for pose preds 
@@ -586,7 +646,8 @@ class MOTR(nn.Module):
         track_instances.output_embedding = hs[-1, 0]
         
         if self.enable_pose:
-            track_instances.pred_poses = outputs_pose[-1, 0]
+            track_instances.pred_rotations = outputs_rot[-1, 0]
+            track_instances.pred_translations = outputs_tran[-1, 0]
 
         if self.training:
             # the track id will be assigned by the mather.
@@ -704,7 +765,18 @@ def build(args):
     else:
         memory_bank = None
     losses = ['labels', 'boxes']
-    criterion = ClipMatcher(num_classes, matcher=img_matcher, weight_dict=weight_dict, losses=losses)
+    sym_classes = None
+    models_pts = None
+    if args.enable_pose:
+        sym_classes = args.sym_classes
+        model_pts = mesh_tools.read_models_points()
+        losses.append('poses')
+    criterion = ClipMatcher(num_classes, matcher=img_matcher, 
+                    weight_dict=weight_dict, losses=losses,
+                    sym_classes=sym_classes,
+                    model_pts=model_pts,
+                    enable_pose=args.enable_pose
+                    )       
     criterion.to(device)
     postprocessors = {}
     model = MOTR(
