@@ -138,6 +138,8 @@ class YCBV:
         gt_instances.obj_ids = targets['obj_ids']
         gt_instances.area = targets['area']
         gt_instances.poses = targets['poses']
+        gt_instances.translations = targets['translations']
+        gt_instances.rotations = targets['rotations']
         return gt_instances
 
     @staticmethod
@@ -187,6 +189,8 @@ class YCBV:
        
         # filter out all objects that are outside of field of view
         targets['poses'] = targets['poses'][valid_cls_ids]
+        targets['rotations'] = targets['poses'][:, :, :3] # Nx3X3
+        targets['translations'] = targets['poses'][:, :, 3] # Nx3 #FIXME loss of a dim okay?
 
         cls_ids = labels['cls_indexes'].tolist()
         boxes = []
