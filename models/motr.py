@@ -19,7 +19,7 @@ import torch.nn.functional as F
 from torch import nn, Tensor
 from typing import List
 
-from util import box_ops
+from util import box_ops, pose_ops
 from util.misc import (NestedTensor, nested_tensor_from_tensor_list,
                        accuracy, get_world_size, interpolate, get_rank,
                        is_dist_avail_and_initialized, inverse_sigmoid)
@@ -65,7 +65,7 @@ class ClipMatcher(SetCriterion):
         empty_weight[-1] = 0.1
         self.register_buffer('empty_weight', empty_weight)
         # self.register_buffer('enable_pose', enable_pose)
-        self.register_buffer('model_pts', model_pts)
+        self.register_buffer('model_points', model_pts)
         self.register_buffer('symmetric_classes', torch.as_tensor(sym_classes))
         
         self.enable_pose = enable_pose
@@ -126,7 +126,6 @@ class ClipMatcher(SetCriterion):
         # We ignore the regression loss of the track-disappear slots.
         #TODO: Make this filter process more elegant.
         filtered_idx = []
-        import ipdb; ipdb.set_trace()
         for src_per_img, tgt_per_img in indices:
             keep = tgt_per_img != -1
             filtered_idx.append((src_per_img[keep], tgt_per_img[keep]))
@@ -153,21 +152,26 @@ class ClipMatcher(SetCriterion):
     def loss_poses(self, outputs, targets, indices, num_boxes):
         
         filtered_idx = []
-        import ipdb; ipdb.set_trace()
         for src_per_img, tgt_per_img in indices:
             keep = tgt_per_img != -1
             filtered_idx.append((src_per_img[keep], tgt_per_img[keep]))
         indices = filtered_idx
         idx = self._get_src_permutation_idx(indices)
         target_classes = torch.cat([t.labels[J] for t, (_, J) in zip(targets, indices)])
-
         src_rotations = outputs['pred_rotations'][idx]
-        target_rotations = torch.cat([t.rotations[i] for t, (_, i) in zip(targets, indices)], dim=0)
+        target_rotations = torch.cat([t.rotations[i] for t, (_, i) in zip(targets, indices)], dim=0).type(src_rotations.dtype)
+        
+        # HACK avoid invalid rotation matrices  
+        src_identity = torch.zeros_like(src_rotations)
+        src_identity[:, 2] = 1.
+        src_identity[:, 4] = 1.
+        src_rotations = src_identity - src_rotations
+
 
         src_translations = outputs['pred_translations'][idx] * 1000
-        target_translations = torch.cat([t.translations[i] for t, (_, i) in zip(targets, indices)], dim=0)
-        points = self.models_points[target_classes - 1]
-        src_transformations = rotation_6d_rotate(points, rot6d2mat(src_rotations)) + src_translations.unsqueeze(1)
+        target_translations = torch.cat([t.translations[i] for t, (_, i) in zip(targets, indices)], dim=0).type(src_translations.dtype)
+        points = self.model_points[target_classes - 1]
+        src_transformations = rotation_6d_rotate(points, pose_ops.rot6d2mat(src_rotations)) + src_translations.unsqueeze(1)
         target_transformations = rotation_6d_rotate(points, target_rotations.contiguous().view(-1, 3, 3)) + target_translations.unsqueeze(1)
 
         diffs = target_classes[:, None] - self.symmetric_classes[None]
@@ -195,7 +199,6 @@ class ClipMatcher(SetCriterion):
         """Classification loss (NLL)
         targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
         """
-        # import ipdb; ipdb.set_trace()
         src_logits = outputs['pred_logits']
         idx = self._get_src_permutation_idx(indices)
         target_classes = torch.full(src_logits.shape[:2], self.num_classes - 1,  # FIXME check if this logic is correct
@@ -236,6 +239,9 @@ class ClipMatcher(SetCriterion):
         track_instances: Instances = outputs_without_aux['track_instances']
         pred_logits_i = track_instances.pred_logits  # predicted logits of i-th image.
         pred_boxes_i = track_instances.pred_boxes  # predicted boxes of i-th image.
+        pred_rotations_i = track_instances.pred_rotations
+        pred_translations_i = track_instances.pred_translations
+
 
         obj_idxes = gt_instances_i.obj_ids
         obj_idxes_list = obj_idxes.detach().cpu().numpy().tolist()
@@ -243,8 +249,9 @@ class ClipMatcher(SetCriterion):
         outputs_i = {
             'pred_logits': pred_logits_i.unsqueeze(0),
             'pred_boxes': pred_boxes_i.unsqueeze(0),
+            'pred_translations': pred_translations_i.unsqueeze(0),
+            'pred_rotations': pred_rotations_i.unsqueeze(0)
         }
-        # import ipdb; ipdb.set_trace()
         # step1. inherit and update the previous tracks.
         num_disappear_track = 0
         for j in range(len(track_instances)):
@@ -294,6 +301,8 @@ class ClipMatcher(SetCriterion):
         unmatched_outputs = {
             'pred_logits': track_instances.pred_logits[unmatched_track_idxes].unsqueeze(0),
             'pred_boxes': track_instances.pred_boxes[unmatched_track_idxes].unsqueeze(0),
+            'pred_translations': track_instances.pred_translations[unmatched_track_idxes].unsqueeze(0),
+            'pred_rotations': track_instances.pred_rotations[unmatched_track_idxes].unsqueeze(0),
         }
         new_matched_indices = match_for_single_decoder_layer(unmatched_outputs, self.matcher)
 
@@ -327,10 +336,18 @@ class ClipMatcher(SetCriterion):
 
         if 'aux_outputs' in outputs:
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
-                unmatched_outputs_layer = {
+                if self.enable_pose:
+                    unmatched_outputs_layer = {
                     'pred_logits': aux_outputs['pred_logits'][0, unmatched_track_idxes].unsqueeze(0),
                     'pred_boxes': aux_outputs['pred_boxes'][0, unmatched_track_idxes].unsqueeze(0),
-                }
+                    'pred_translations': aux_outputs['pred_translations'][0, unmatched_track_idxes].unsqueeze(0),
+                    'pred_rotations': aux_outputs['pred_rotations'][0, unmatched_track_idxes].unsqueeze(0),
+                    }
+                else:
+                    unmatched_outputs_layer = {
+                    'pred_logits': aux_outputs['pred_logits'][0, unmatched_track_idxes].unsqueeze(0),
+                    'pred_boxes': aux_outputs['pred_boxes'][0, unmatched_track_idxes].unsqueeze(0),
+                    }
                 new_matched_indices_layer = match_for_single_decoder_layer(unmatched_outputs_layer, self.matcher)
                 matched_indices_layer = torch.cat([new_matched_indices_layer, prev_matched_indices], dim=0)
                 for loss in self.losses:
@@ -549,6 +566,16 @@ class MOTR(nn.Module):
         self.track_base.clear()
 
     @torch.jit.unused
+    def _set_aux_pose_loss(self, outputs_class, outputs_coord, outputs_rot, outputs_tran):
+        # this is a workaround to make torchscript happy, as torchscript
+        # doesn't support dictionary with non-homogeneous values, such
+        # as a dict having both a Tensor and a list.
+        return [{'pred_logits': a, 'pred_boxes': b, 'pred_rotations':c, 'pred_translations': d}
+                for a, b, c, d in zip(outputs_class[:-1], 
+                                 outputs_coord[:-1], 
+                                 outputs_rot[:-1], outputs_tran[:-1])]
+    
+    @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_coord):
         # this is a workaround to make torchscript happy, as torchscript
         # doesn't support dictionary with non-homogeneous values, such
@@ -584,7 +611,6 @@ class MOTR(nn.Module):
                 pos.append(pos_l)
 
         hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, track_instances.query_pos, ref_pts=track_instances.ref_pts)
-        import ipdb; ipdb.set_trace()
         outputs_classes = []
         outputs_coords = []
         outputs_rots = []
@@ -615,7 +641,6 @@ class MOTR(nn.Module):
 
         outputs_class = torch.stack(outputs_classes)
         outputs_coord = torch.stack(outputs_coords)
-        
         if self.enable_pose:
             outputs_rot = torch.stack(outputs_rots)
             outputs_tran = torch.stack(outputs_trans)
@@ -630,7 +655,7 @@ class MOTR(nn.Module):
         if self.aux_loss:
             if self.enable_pose:
                 # FIXME aux_loss for pose preds 
-                out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
+                out['aux_outputs'] = self._set_aux_pose_loss(outputs_class, outputs_coord, outputs_rot, outputs_tran)
             else:
                 out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
 
@@ -691,7 +716,6 @@ class MOTR(nn.Module):
 
     def forward(self, data: dict):
         if self.training:
-            # import ipdb; ipdb.set_trace()
             self.criterion.initialize_for_single_clip(data['gt_instances'])
         frames = data['imgs']  # list of Tensor.
         outputs = {

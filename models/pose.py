@@ -38,8 +38,9 @@ def axis_angle_rotate(points, rotations):
 
 
 def rotation_6d_rotate(points, rotations):
-    return torch.squeeze(rotations.unsqueeze(1) @ points.unsqueeze(-1), dim=-1)
-
+    # import ipdb; ipdb.set_trace()
+    t =  torch.squeeze(rotations.unsqueeze(1) @ points.unsqueeze(-1), dim=-1)
+    return t
 
 class PostProcessPose(nn.Module):
     def __init__(self, rotation_representation, translation_scale):

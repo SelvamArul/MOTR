@@ -267,7 +267,6 @@ def eval_mot_bbox(model: torch.nn.Module,
         # metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
         # metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         _card_error += compute_cardinality_error(outputs, data_dict)
-        print ()
 
     print ("Total error ", _card_error)
     import ipdb; ipdb.set_trace()
