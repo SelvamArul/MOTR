@@ -773,6 +773,8 @@ def build(args):
                             'frame_{}_loss_bbox'.format(i): args.bbox_loss_coef,
                             'frame_{}_loss_giou'.format(i): args.giou_loss_coef,
                             })
+        if args.enable_pose:
+            weight_dict['frame_{}_loss_pose'.format(i)] = args.pose_loss_coef
 
     # TODO this is a hack
     if args.aux_loss:
@@ -782,6 +784,9 @@ def build(args):
                                     'frame_{}_aux{}_loss_bbox'.format(i, j): args.bbox_loss_coef,
                                     'frame_{}_aux{}_loss_giou'.format(i, j): args.giou_loss_coef,
                                     })
+            if args.enable_pose:
+                weight_dict['frame_{}_aux{}_loss_pose'.format(i, j)] =  args.pose_loss_coef
+    
     if args.memory_bank_type is not None and len(args.memory_bank_type) > 0:
         memory_bank = build_memory_bank(args, d_model, hidden_dim, d_model * 2)
         for i in range(num_frames_per_batch):

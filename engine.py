@@ -201,6 +201,8 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
+from rich import print as rprint
+from collections import Counter
 def eval_mot_bbox(model: torch.nn.Module,
                     criterion: torch.nn.Module,
                     data_loader: Iterable,
@@ -211,8 +213,8 @@ def eval_mot_bbox(model: torch.nn.Module,
     # wandb.login()
     # wand.init(project="bbox_eval",
     #         name=exp_name)
-
-    def compute_cardinality_error(outputs, data_dict):
+    x_count = 1
+    def compute_cardinality_error(outputs, data_dict, x_count):
         bs = len(outputs['pred_logits'])
         _cardinality_error = 0
         for i in range(bs):
@@ -221,13 +223,21 @@ def eval_mot_bbox(model: torch.nn.Module,
             gt_idx = data_dict['gt_instances'][i].get_fields()['labels']
             pred_idx = pred_idx.sort().values
             gt_idx = gt_idx.sort().values
-            cardinality_error = abs(len(pred_idx) - len(gt_idx))
+            gt_list = gt_idx.tolist()
+            pred_list = pred_idx.tolist()
+            gt_cnt = Counter(gt_list)
+            pred_cnt = Counter(pred_list)
+            missing_ids = [k for k, counts in pred_cnt.items() if gt_cnt[k] != counts]
+            cardinality_error = len(missing_ids) 
             _cardinality_error += cardinality_error
 
-            print ('cardinality_error : ', cardinality_error)
-            print ('gt_idx', gt_idx.tolist())
-            print ('pred_ids', pred_idx.tolist())
-            return _cardinality_error
+            if cardinality_error == 0:
+                # print (x_count, gt_idx.tolist(), pred_idx.tolist(), cardinality_error)
+                pass
+            else:
+                rprint(x_count, gt_idx.tolist(), pred_idx.tolist(), f"[bold red] {cardinality_error} [/bold red]   :warning:")
+                rprint(missing_ids)
+        return _cardinality_error
     model.train() # TODO
     criterion.train()
     epoch = 0
@@ -266,8 +276,8 @@ def eval_mot_bbox(model: torch.nn.Module,
 
         # metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
         # metric_logger.update(lr=optimizer.param_groups[0]["lr"])
-        _card_error += compute_cardinality_error(outputs, data_dict)
-
+        _card_error += compute_cardinality_error(outputs, data_dict, x_count)
+        x_count += 1
     print ("Total error ", _card_error)
     import ipdb; ipdb.set_trace()
     # metric_logger.synchronize_between_processes()

@@ -186,6 +186,12 @@ def get_args_parser():
     parser.add_argument('--memory_bank_len', type=int, default=4)
     parser.add_argument('--memory_bank_type', type=str, default=None)
     parser.add_argument('--memory_bank_with_self_attn', action='store_true', default=False)
+    
+    # pose parameters
+    parser.add_argument('--enable_pose', action='store_true')
+    parser.add_argument('--sym_classes', default=[], nargs='+', type=int,
+                                    help='Symmetric classes')  # [13, 16, 19, 20, 21]
+    parser.add_argument('--pose_loss_coef', default=0.01, type=float)
     return parser
 
 
@@ -242,7 +248,7 @@ def main(args):
 
     data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
                                    collate_fn=collate_fn, num_workers=args.num_workers,
-                                   pin_memory=True)
+                                       pin_memory=True)
     data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
                                  drop_last=False, collate_fn=collate_fn, num_workers=args.num_workers,
                                  pin_memory=True)

@@ -190,6 +190,7 @@ def get_args_parser():
     parser.add_argument('--enable_pose', action='store_true')
     parser.add_argument('--sym_classes', default=[], nargs='+', type=int,
                                     help='Symmetric classes')  # [13, 16, 19, 20, 21]
+    parser.add_argument('--pose_loss_coef', default=0.01, type=float)
     return parser
 
 
