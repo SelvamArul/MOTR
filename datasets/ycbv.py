@@ -140,6 +140,7 @@ class YCBV:
         gt_instances.poses = targets['poses']
         gt_instances.translations = targets['translations']
         gt_instances.rotations = targets['rotations']
+        gt_instances.image_id = targets['image_id']
         return gt_instances
 
     @staticmethod
@@ -182,7 +183,6 @@ class YCBV:
         targets['iscrowd'] = []
         targets['labels'] = []
         targets['obj_ids'] = []
-        targets['image_id'] = torch.as_tensor(idx)
         targets['size'] = torch.as_tensor([h, w])
         targets['orig_size'] = torch.as_tensor([h, w])
         targets['poses'] = torch.tensor(labels['poses']).permute(2,0,1) # NX3X4 objects
@@ -211,6 +211,9 @@ class YCBV:
         targets['labels'] = torch.as_tensor(cls_ids, dtype=torch.int64)
         targets['area'] = (targets['boxes'][:, 2] * targets['boxes'][:,3])
         targets['iscrowd'] = torch.zeros_like(targets['labels'])
+        
+        # targets['image_id'] = torch.full_like(targets['labels'], idx, dtype=torch.int64)
+        targets['image_id'] = [idx] * len(targets['labels'])
         # import ipdb; ipdb.set_trace()
         # print()
 
