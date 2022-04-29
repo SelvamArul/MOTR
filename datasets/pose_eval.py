@@ -75,19 +75,36 @@ class PoseEvaluator(object):
         gts_ind = np.asarray(gts_ind, dtype=np.int64)
         dts_ind = np.asarray(dts_ind, dtype=np.int64)
         return gts_ind, dts_ind
+    
+    def gt_instances_to_dict(self, gt_instances):
+        gts = {}
+        gts['labels'] = gt_instances.labels.detach().cpu().numpy()
+        gts['boxes'] = gt_instances.boxes.detach().cpu().numpy()
+        gts['translations'] = gt_instances.translations.detach().cpu().numpy()
+        gts['rotations'] = gt_instances.rotations.detach().cpu().numpy()
+        gts['image_id'] = gt_instances.image_id[0].detach().cpu().item()
+        return gts
+    def outputs_to_dts(self, outputs, k):
+        dts = {}
+        dts['scores'] = outputs['pred_logits'][k].detach().cpu().numpy()
+        dts['boxes'] = outputs['pred_boxes'][k].detach().cpu().numpy()
+        dts['translations'] = outputs['pred_translations'][k].detach().cpu().numpy()
+        dts['rotations'] = outputs['pred_rotations'][k].detach().cpu().numpy()
+        return dts
+    def update(self, outputs, gt_instances):
 
-    def update(self, predictions):
-        results = self.prepare(predictions)
-        for image_id in results:
-            gts = self.groundtruths[image_id]
-            dts = results[image_id]  # self.posecnn_results[image_id]
-            dts_lbls, scores, dts_rot, dts_trans = dts['labels'], dts['scores'], dts['rotations'], dts['translations']
+        # results = self.prepare(predictions)
+        num_frames = len(outputs['pred_logits'])
+        for frame in range(num_frames):
+            gt_frame = gt_instances[frame]
+            gts = self.gt_instances_to_dict(gt_frame)
+            dts = self.outputs_to_dts(outputs, frame)
+            scores, dts_rot, dts_trans = dts['scores'], dts['rotations'], dts['translations']
             labels, gts_rot, gts_trans = gts['labels'], gts['rotations'], gts['translations']
+            import ipdb; ipdb.set_trace()
             if 'keypoints' in dts:
                 dts_kpts, gts_kpts = dts['keypoints'], gts['keypoints']
-            filename = gts['filename'].split('.')[0]
-            scene_id, im_id = filename.split('_')
-            scene_id, im_id = int(scene_id), int(im_id)
+            scene_id, im_id = int(gts['image_id']), int(gts['image_id'])
             # mat = {'poses': [], 'rois': []}
             errors = ["class", "score", "add", "adds", "te", "re", "proj"]  # "xyz"
             image_errors = {}
@@ -126,7 +143,7 @@ class PoseEvaluator(object):
                     elif error == "kpts_z":
                         image_errors[error][g_i] = np.linalg.norm(dts_kpts[d_i] - gts_kpts[g_i][..., :2], axis=1)[np.argsort(gts_kpts[g_i][..., 2], kind='mergesort')]
 
-            self.errors[filename] = image_errors
+            self.errors[im_id] = image_errors
 
 
     def synchronize_between_processes(self):

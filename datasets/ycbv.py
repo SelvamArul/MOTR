@@ -212,8 +212,8 @@ class YCBV:
         targets['area'] = (targets['boxes'][:, 2] * targets['boxes'][:,3])
         targets['iscrowd'] = torch.zeros_like(targets['labels'])
         
-        # targets['image_id'] = torch.full_like(targets['labels'], idx, dtype=torch.int64)
-        targets['image_id'] = [idx] * len(targets['labels'])
+        targets['image_id'] = torch.full_like(targets['labels'], idx, dtype=torch.int64)
+        # targets['image_id'] = [idx] * len(targets['labels'])
         # import ipdb; ipdb.set_trace()
         # print()
 

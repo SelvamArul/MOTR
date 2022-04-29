@@ -203,9 +203,11 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
 
 from rich import print as rprint
 from collections import Counter
+from datasets.pose_eval import PoseEvaluator
 def eval_mot_bbox(model: torch.nn.Module,
                     criterion: torch.nn.Module,
                     data_loader: Iterable,
+                    models_ds : Iterable,
                     device: torch.device,
                     exp_name: str):
     # wandb init
@@ -213,6 +215,8 @@ def eval_mot_bbox(model: torch.nn.Module,
     # wandb.login()
     # wand.init(project="bbox_eval",
     #         name=exp_name)
+    obj_id_dict = data_loader.dataset.obj_id_to_name
+    pose_evaluator = PoseEvaluator(models_ds, obj_id_dict, exp_name)
     x_count = 1
     def compute_cardinality_error(outputs, data_dict, x_count):
         bs = len(outputs['pred_logits'])
@@ -255,6 +259,9 @@ def eval_mot_bbox(model: torch.nn.Module,
         outputs = model(data_dict)
 
         loss_dict = criterion(outputs, data_dict)
+        pose_evaluator.update(outputs, data_dict['gt_instances'])
+
+
         # print("iter {} after model".format(cnt-1))
         weight_dict = criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)

@@ -721,6 +721,8 @@ class MOTR(nn.Module):
         outputs = {
             'pred_logits': [],
             'pred_boxes': [],
+            'pred_rotations':[],
+            'pred_translations':[],
         }
 
         track_instances = self._generate_empty_tracks()
@@ -732,7 +734,9 @@ class MOTR(nn.Module):
             track_instances = frame_res['track_instances']
             outputs['pred_logits'].append(frame_res['pred_logits'])
             outputs['pred_boxes'].append(frame_res['pred_boxes'])
-
+            outputs['pred_rotations'].append(frame_res['pred_rotations'])
+            outputs['pred_translations'].append(frame_res['pred_translations'])
+            
         if not self.training:
             
             # TODO HACK: Find a better logic
