@@ -4,8 +4,8 @@ import torch.nn.functional as F
 import kornia
 import numpy as np
 import pinocchio as pin
-import eigenpy
-eigenpy.switchToNumpyArray()
+# import eigenpy
+# eigenpy.switchToNumpyArray()
 
 
 def transform_poses(poses, intrinsic, transform, scale, inv=False):

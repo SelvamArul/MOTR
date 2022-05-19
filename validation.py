@@ -35,6 +35,7 @@ from datasets import build_dataset, get_coco_api_from_dataset
 from engine import evaluate, train_one_epoch, train_one_epoch_mot, eval_mot_bbox
 from models import build_model
 
+from datasets.bop_models import build as build_bop_models
 import sys
 
 def get_args_parser():
@@ -192,6 +193,11 @@ def get_args_parser():
     parser.add_argument('--sym_classes', default=[], nargs='+', type=int,
                                     help='Symmetric classes')  # [13, 16, 19, 20, 21]
     parser.add_argument('--pose_loss_coef', default=0.01, type=float)
+
+    # bop_models params
+    parser.add_argument('--trans_scale', type=int, default=1, help='pose dataset unit')
+    parser.add_argument('--num_keypoints', default=32, type=int)
+    parser.add_argument('--posecnn_val', action='store_true')
     return parser
 
 
@@ -359,6 +365,8 @@ def main(args):
         dataset_train.set_epoch(args.start_epoch)
         dataset_val.set_epoch(args.start_epoch)
     output_dir.mkdir(exist_ok=True)
+
+    bop_models = build_bop_models(args)
     for epoch in range(1):
         if args.distributed:
             sampler_train.set_epoch(epoch)
@@ -371,7 +379,7 @@ def main(args):
                 checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
 
                 # validation
-                val_stats = val_func(model, criterion, data_loader_val, device, args.output_dir) 
+                val_stats = val_func(model, criterion, data_loader_val, bop_models, device, args.output_dir) 
 
 
                 log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},

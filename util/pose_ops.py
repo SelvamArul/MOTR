@@ -2,10 +2,10 @@ import cv2
 import torch
 import numpy as np
 import pinocchio as pin
-import eigenpy
+# import eigenpy
 from scipy.spatial.transform import Rotation
 from pytorch3d.transforms import matrix_to_quaternion, quaternion_to_axis_angle, axis_angle_to_quaternion, quaternion_to_matrix
-eigenpy.switchToNumpyArray()
+# eigenpy.switchToNumpyArray()
 
 
 def transform_poses(poses, intrinsic, transform, scale, inv=False):

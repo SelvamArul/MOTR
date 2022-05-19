@@ -370,7 +370,7 @@ class ClipMatcher(SetCriterion):
         losses = outputs.pop("losses_dict")
         num_samples = self.get_num_boxes(self.num_samples)
         for loss_name, loss in losses.items():
-            losses[loss_name] /= num_samples
+            losses[loss_name] = losses[loss_name] / num_samples
         return losses
 
 

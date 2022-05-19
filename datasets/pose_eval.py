@@ -50,10 +50,16 @@ class PoseEvaluator(object):
 
     def matching(self, dts, gts, threshold):
         labels = gts['labels']
-        scores = dts['scores']
-        indices = np.nonzero(scores >= threshold)[0]
-        order = np.argsort(-scores[indices], kind='mergesort')
-        keep = indices[order]
+        scores = dts['scores'].squeeze().max(axis=-1)
+        import ipdb; ipdb.set_trace()
+        try:
+            indices = np.nonzero(scores >= threshold)[0]
+            order = np.argsort(-scores[indices], kind='mergesort')
+            keep = indices[order]
+        except Exception as e:
+            print (e)
+            import ipdb; ipdb.set_trace()
+            print ()
         if keep.size == 0:
             return np.array([], dtype=np.int64), np.array([], dtype=np.int64)
 
@@ -62,16 +68,21 @@ class PoseEvaluator(object):
         dts_rot = dts['rotations'][keep]
         dts_trans = dts['translations'][keep]
         gts_ind, dts_ind = [], []
-        for l in np.unique(dts_labels):
-            mask_g, mask_d = labels == l, dts_labels == l
-            if mask_g.sum() > 0:
-                costs = norm(rot_errors(gts['rotations'][mask_g], dts_rot[mask_d]))
-                costs += norm(np.linalg.norm(gts['translations'][mask_g][:, None] - dts_trans[mask_d][None], axis=2))
-                if dts_boxes is not None:
-                    costs += norm(bbox_overlaps(gts['boxes'][mask_g], dts_boxes[mask_d]))
-                gts_tmp_ind, dts_tmp_ind = linear_sum_assignment(costs)
-                gts_ind += np.nonzero(mask_g)[0][gts_tmp_ind].tolist()
-                dts_ind += keep[mask_d][dts_tmp_ind].tolist()
+        try:
+            for l in np.unique(dts_labels):
+                mask_g, mask_d = labels == l, dts_labels == l
+                if mask_g.sum() > 0:
+                    costs = norm(rot_errors(gts['rotations'][mask_g], dts_rot[mask_d]))
+                    costs += norm(np.linalg.norm(gts['translations'][mask_g][:, None] - dts_trans[mask_d][None], axis=2))
+                    if dts_boxes is not None:
+                        costs += norm(bbox_overlaps(gts['boxes'][mask_g], dts_boxes[mask_d]))
+                    gts_tmp_ind, dts_tmp_ind = linear_sum_assignment(costs)
+                    gts_ind += np.nonzero(mask_g)[0][gts_tmp_ind].tolist()
+                    dts_ind += keep[mask_d][dts_tmp_ind].tolist()
+        except Exception as e:
+            print (e)
+            import ipdb; ipdb.set_trace()
+            print()
         gts_ind = np.asarray(gts_ind, dtype=np.int64)
         dts_ind = np.asarray(dts_ind, dtype=np.int64)
         return gts_ind, dts_ind
@@ -101,7 +112,7 @@ class PoseEvaluator(object):
             dts = self.outputs_to_dts(outputs, frame)
             scores, dts_rot, dts_trans = dts['scores'], dts['rotations'], dts['translations']
             labels, gts_rot, gts_trans = gts['labels'], gts['rotations'], gts['translations']
-            import ipdb; ipdb.set_trace()
+            # import ipdb; ipdb.set_trace()
             if 'keypoints' in dts:
                 dts_kpts, gts_kpts = dts['keypoints'], gts['keypoints']
             scene_id, im_id = int(gts['image_id']), int(gts['image_id'])
