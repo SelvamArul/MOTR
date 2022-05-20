@@ -1,3 +1,4 @@
+shopt -s expand_aliases
 # ------------------------------------------------------------------------
 # Copyright (c) 2021 megvii-model. All Rights Reserved.
 # ------------------------------------------------------------------------
@@ -8,14 +9,15 @@
 
 # for MOT17
 
-EXP_DIR=exps/ycbv_eval
-python validation.py\
+alias xpython="singularity run -B /home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET,/home/nfs/inf6/data/datasets/ycbv_coco --nv /home/cache/containers/motr_image.sif python"
+EXP_DIR=exps/pose_eval
+xpython validation.py\
     --meta_arch motr \
     --dataset_file ycbv\
-    --dataset_path '/home/cache/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/'\
-    --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_mini.txt'\
-    --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_mini.txt'\
-    --resume '/home/user/periyasa/workspace/MOTR/exps/ddp_ycbv_from_scratch_06-Apr-2022_12:06/checkpoint.pth' \
+    --dataset_path '/home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/'\
+    --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_train.txt'\
+    --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_val.txt'\
+    --resume '/home/user/periyasa/workspace/MOTR/exps/ddp_pose_from_scratch_24-Apr-2022_08:58/checkpoint.pth' \
     --epoch 200 \
     --with_box_refine \
     --lr_drop 100 \
@@ -36,5 +38,6 @@ python validation.py\
     --extra_track_attn \
     --data_txt_path_train ./datasets/data_path/mot17.train \
     --data_txt_path_val ./datasets/data_path/mot17.train \
-    --mot_path '/home/cache/datasets/YCB_VIDEO_DATASET/'
-
+    --mot_path '/home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET/' \
+    --enable_pose \
+    --sym_classes 13 16 19 20 21
