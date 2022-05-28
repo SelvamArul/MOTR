@@ -65,8 +65,9 @@ class ClipMatcher(SetCriterion):
         empty_weight[-1] = 0.1
         self.register_buffer('empty_weight', empty_weight)
         # self.register_buffer('enable_pose', enable_pose)
-        self.register_buffer('model_points', model_pts)
-        self.register_buffer('symmetric_classes', torch.as_tensor(sym_classes))
+        if enable_pose:
+            self.register_buffer('model_points', model_pts)
+            self.register_buffer('symmetric_classes', torch.as_tensor(sym_classes))
         
         self.enable_pose = enable_pose
 
@@ -239,19 +240,27 @@ class ClipMatcher(SetCriterion):
         track_instances: Instances = outputs_without_aux['track_instances']
         pred_logits_i = track_instances.pred_logits  # predicted logits of i-th image.
         pred_boxes_i = track_instances.pred_boxes  # predicted boxes of i-th image.
-        pred_rotations_i = track_instances.pred_rotations
-        pred_translations_i = track_instances.pred_translations
+        if self.enable_pose:
+            pred_rotations_i = track_instances.pred_rotations
+            pred_translations_i = track_instances.pred_translations
 
 
         obj_idxes = gt_instances_i.obj_ids
         obj_idxes_list = obj_idxes.detach().cpu().numpy().tolist()
         obj_idx_to_gt_idx = {obj_idx: gt_idx for gt_idx, obj_idx in enumerate(obj_idxes_list)}
-        outputs_i = {
-            'pred_logits': pred_logits_i.unsqueeze(0),
-            'pred_boxes': pred_boxes_i.unsqueeze(0),
-            'pred_translations': pred_translations_i.unsqueeze(0),
-            'pred_rotations': pred_rotations_i.unsqueeze(0)
-        }
+        if self.enable_pose:
+            outputs_i = {
+                'pred_logits': pred_logits_i.unsqueeze(0),
+                'pred_boxes': pred_boxes_i.unsqueeze(0),
+                'pred_translations': pred_translations_i.unsqueeze(0),
+                'pred_rotations': pred_rotations_i.unsqueeze(0)
+            }
+        else:
+            outputs_i = {
+                'pred_logits': pred_logits_i.unsqueeze(0),
+                'pred_boxes': pred_boxes_i.unsqueeze(0),
+            }
+
         # step1. inherit and update the previous tracks.
         num_disappear_track = 0
         for j in range(len(track_instances)):
@@ -298,12 +307,19 @@ class ClipMatcher(SetCriterion):
             return new_matched_indices
 
         # step4. do matching between the unmatched slots and GTs.
-        unmatched_outputs = {
-            'pred_logits': track_instances.pred_logits[unmatched_track_idxes].unsqueeze(0),
-            'pred_boxes': track_instances.pred_boxes[unmatched_track_idxes].unsqueeze(0),
-            'pred_translations': track_instances.pred_translations[unmatched_track_idxes].unsqueeze(0),
-            'pred_rotations': track_instances.pred_rotations[unmatched_track_idxes].unsqueeze(0),
-        }
+        if self.enable_pose:
+            unmatched_outputs = {
+                'pred_logits': track_instances.pred_logits[unmatched_track_idxes].unsqueeze(0),
+                'pred_boxes': track_instances.pred_boxes[unmatched_track_idxes].unsqueeze(0),
+                'pred_translations': track_instances.pred_translations[unmatched_track_idxes].unsqueeze(0),
+                'pred_rotations': track_instances.pred_rotations[unmatched_track_idxes].unsqueeze(0),
+            }
+        else:
+            unmatched_outputs = {
+                'pred_logits': track_instances.pred_logits[unmatched_track_idxes].unsqueeze(0),
+                'pred_boxes': track_instances.pred_boxes[unmatched_track_idxes].unsqueeze(0),
+            }
+            
         new_matched_indices = match_for_single_decoder_layer(unmatched_outputs, self.matcher)
 
         # step5. update obj_idxes according to the new matching result.
@@ -734,8 +750,9 @@ class MOTR(nn.Module):
             track_instances = frame_res['track_instances']
             outputs['pred_logits'].append(frame_res['pred_logits'])
             outputs['pred_boxes'].append(frame_res['pred_boxes'])
-            outputs['pred_rotations'].append(frame_res['pred_rotations'])
-            outputs['pred_translations'].append(frame_res['pred_translations'])
+            if self.enable_pose:
+                outputs['pred_rotations'].append(frame_res['pred_rotations'])
+                outputs['pred_translations'].append(frame_res['pred_translations'])
             
         if not self.training:
             
@@ -799,7 +816,7 @@ def build(args):
         memory_bank = None
     losses = ['labels', 'boxes']
     sym_classes = None
-    models_pts = None
+    model_pts = None
     if args.enable_pose:
         sym_classes = args.sym_classes
         model_pts = mesh_tools.read_models_points()
