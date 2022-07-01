@@ -36,6 +36,7 @@ from .segmentation import sigmoid_focal_loss
 from .pose import axis_angle_rotate, rotation_6d_rotate, PostProcessPose
 
 from util import mesh_tools
+from handy_profiler import Timer
 class ClipMatcher(SetCriterion):
     def __init__(self, num_classes,
                         matcher,
@@ -598,68 +599,72 @@ class MOTR(nn.Module):
         # as a dict having both a Tensor and a list.
         return [{'pred_logits': a, 'pred_boxes': b, }
                 for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
-
+    
+    @Timer('_forward_single_image')
     def _forward_single_image(self, samples, track_instances: Instances):
-        features, pos = self.backbone(samples)
-        src, mask = features[-1].decompose()
-        assert mask is not None
+        with Timer('backbone'):
+            features, pos = self.backbone(samples)
+            src, mask = features[-1].decompose()
+            assert mask is not None
 
         srcs = []
         masks = []
-        for l, feat in enumerate(features):
-            src, mask = feat.decompose()
-            srcs.append(self.input_proj[l](src))
-            masks.append(mask)
-            assert mask is not None
-
-        if self.num_feature_levels > len(srcs):
-            _len_srcs = len(srcs)
-            for l in range(_len_srcs, self.num_feature_levels):
-                if l == _len_srcs:
-                    src = self.input_proj[l](features[-1].tensors)
-                else:
-                    src = self.input_proj[l](srcs[-1])
-                m = samples.mask
-                mask = F.interpolate(m[None].float(), size=src.shape[-2:]).to(torch.bool)[0]
-                pos_l = self.backbone[1](NestedTensor(src, mask)).to(src.dtype)
-                srcs.append(src)
+        with Timer('projection'):
+            for l, feat in enumerate(features):
+                src, mask = feat.decompose()
+                srcs.append(self.input_proj[l](src))
                 masks.append(mask)
-                pos.append(pos_l)
-
-        hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, track_instances.query_pos, ref_pts=track_instances.ref_pts)
+                assert mask is not None
+        with Timer('pos encoding'):
+            if self.num_feature_levels > len(srcs):
+                _len_srcs = len(srcs)
+                for l in range(_len_srcs, self.num_feature_levels):
+                    if l == _len_srcs:
+                        src = self.input_proj[l](features[-1].tensors)
+                    else:
+                        src = self.input_proj[l](srcs[-1])
+                    m = samples.mask
+                    mask = F.interpolate(m[None].float(), size=src.shape[-2:]).to(torch.bool)[0]
+                    pos_l = self.backbone[1](NestedTensor(src, mask)).to(src.dtype)
+                    srcs.append(src)
+                    masks.append(mask)
+                    pos.append(pos_l)
+        with Timer('transformer'):
+            hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, track_instances.query_pos, ref_pts=track_instances.ref_pts)
         outputs_classes = []
         outputs_coords = []
         outputs_rots = []
         outputs_trans = []
-        for lvl in range(hs.shape[0]):
-            if lvl == 0:
-                reference = init_reference
-            else:
-                reference = inter_references[lvl - 1]
-            reference = inverse_sigmoid(reference)
-            outputs_class = self.class_embed[lvl](hs[lvl])
-            tmp = self.bbox_embed[lvl](hs[lvl])
-            if reference.shape[-1] == 4:
-                tmp += reference
-            else:
-                assert reference.shape[-1] == 2
-                tmp[..., :2] += reference
-            outputs_coord = tmp.sigmoid()
-            outputs_classes.append(outputs_class)
-            outputs_coords.append(outputs_coord)
+        with Timer('FFN'):
+            for lvl in range(hs.shape[0]):
+                if lvl == 0:
+                    reference = init_reference
+                else:
+                    reference = inter_references[lvl - 1]
+                reference = inverse_sigmoid(reference)
+                outputs_class = self.class_embed[lvl](hs[lvl])
+                tmp = self.bbox_embed[lvl](hs[lvl])
+                if reference.shape[-1] == 4:
+                    tmp += reference
+                else:
+                    assert reference.shape[-1] == 2
+                    tmp[..., :2] += reference
+                outputs_coord = tmp.sigmoid()
+                outputs_classes.append(outputs_class)
+                outputs_coords.append(outputs_coord)
 
-            # pose FFN
+                # pose FFN
+                if self.enable_pose:
+                    outputs_rot = self.rot_embed[lvl](hs[lvl])
+                    outputs_rots.append(outputs_rot)
+                    outputs_tran = self.trans_embed[lvl](hs[lvl])
+                    outputs_trans.append(outputs_tran)
+
+            outputs_class = torch.stack(outputs_classes)
+            outputs_coord = torch.stack(outputs_coords)
             if self.enable_pose:
-                outputs_rot = self.rot_embed[lvl](hs[lvl])
-                outputs_rots.append(outputs_rot)
-                outputs_tran = self.trans_embed[lvl](hs[lvl])
-                outputs_trans.append(outputs_tran)
-
-        outputs_class = torch.stack(outputs_classes)
-        outputs_coord = torch.stack(outputs_coords)
-        if self.enable_pose:
-            outputs_rot = torch.stack(outputs_rots)
-            outputs_tran = torch.stack(outputs_trans)
+                outputs_rot = torch.stack(outputs_rots)
+                outputs_tran = torch.stack(outputs_trans)
 
         ref_pts_all = torch.cat([init_reference[None], inter_references[:, :, :, :2]], dim=0)
         
@@ -674,12 +679,12 @@ class MOTR(nn.Module):
                 out['aux_outputs'] = self._set_aux_pose_loss(outputs_class, outputs_coord, outputs_rot, outputs_tran)
             else:
                 out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
-
-        with torch.no_grad():
-            if self.training:
-                track_scores = outputs_class[-1, 0, :].sigmoid().max(dim=-1).values
-            else:
-                track_scores = outputs_class[-1, 0, :, 0].sigmoid()
+        with Timer('track_scores'):
+            with torch.no_grad():
+                if self.training:
+                    track_scores = outputs_class[-1, 0, :].sigmoid().max(dim=-1).values
+                else:
+                    track_scores = outputs_class[-1, 0, :, 0].sigmoid()
 
         track_instances.scores = track_scores
         track_instances.pred_logits = outputs_class[-1, 0]
@@ -690,19 +695,20 @@ class MOTR(nn.Module):
             track_instances.pred_rotations = outputs_rot[-1, 0]
             track_instances.pred_translations = outputs_tran[-1, 0]
 
-        if self.training:
-            # the track id will be assigned by the mather.
-            out['track_instances'] = track_instances
-            track_instances = self.criterion.match_for_single_frame(out)
-        else:
-            # each track will be assigned an unique global id by the track base.
-            self.track_base.update(track_instances)
-        if self.memory_bank is not None:
-            track_instances = self.memory_bank(track_instances)
-            # track_instances.track_scores = track_instances.track_scores[..., 0]
-            # track_instances.scores = track_instances.track_scores.sigmoid()
+        with Timer('track_instances'):
             if self.training:
-                self.criterion.calc_loss_for_track_scores(track_instances)
+                # the track id will be assigned by the mather.
+                out['track_instances'] = track_instances
+                track_instances = self.criterion.match_for_single_frame(out)
+            else:
+                # each track will be assigned an unique global id by the track base.
+                self.track_base.update(track_instances)
+            if self.memory_bank is not None:
+                track_instances = self.memory_bank(track_instances)
+                # track_instances.track_scores = track_instances.track_scores[..., 0]
+                # track_instances.scores = track_instances.track_scores.sigmoid()
+                if self.training:
+                    self.criterion.calc_loss_for_track_scores(track_instances)
         tmp = {}
         tmp['init_track_instances'] = self._generate_empty_tracks()
         tmp['track_instances'] = track_instances
@@ -731,8 +737,10 @@ class MOTR(nn.Module):
         return ret
 
     def forward(self, data: dict):
-        if self.training:
-            self.criterion.initialize_for_single_clip(data['gt_instances'])
+            
+        with Timer('init_single_clip'):
+            if self.training:
+                self.criterion.initialize_for_single_clip(data['gt_instances'])
         frames = data['imgs']  # list of Tensor.
         outputs = {
             'pred_logits': [],
@@ -740,26 +748,24 @@ class MOTR(nn.Module):
             'pred_rotations':[],
             'pred_translations':[],
         }
-
-        track_instances = self._generate_empty_tracks()
+        with Timer('_generate_empty_tracks'):
+            track_instances = self._generate_empty_tracks()
         # print ("forward ", "-"*15)
-        for frame in frames:
-            if not isinstance(frame, NestedTensor):
-                frame = nested_tensor_from_tensor_list([frame])
-            frame_res = self._forward_single_image(frame, track_instances)
-            track_instances = frame_res['track_instances']
-            outputs['pred_logits'].append(frame_res['pred_logits'])
-            outputs['pred_boxes'].append(frame_res['pred_boxes'])
-            if self.enable_pose:
-                outputs['pred_rotations'].append(frame_res['pred_rotations'])
-                outputs['pred_translations'].append(frame_res['pred_translations'])
+        with Timer('loop_forward_single_image'):
+            for frame in frames:
+                if not isinstance(frame, NestedTensor):
+                    frame = nested_tensor_from_tensor_list([frame])
+                frame_res = self._forward_single_image(frame, track_instances)
+                track_instances = frame_res['track_instances']
+                outputs['pred_logits'].append(frame_res['pred_logits'])
+                outputs['pred_boxes'].append(frame_res['pred_boxes'])
+                if self.enable_pose:
+                    outputs['pred_rotations'].append(frame_res['pred_rotations'])
+                    outputs['pred_translations'].append(frame_res['pred_translations'])
             
-        if not self.training:
-            
+        if not self.training: 
             # TODO HACK: Find a better logic
             outputs['losses_dict'] = self.criterion.losses_dict
-
-
             outputs['track_instances'] = track_instances
         else:
             outputs['losses_dict'] = self.criterion.losses_dict

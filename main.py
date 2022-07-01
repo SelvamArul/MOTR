@@ -34,11 +34,11 @@ import datasets.samplers as samplers
 from datasets import build_dataset, get_coco_api_from_dataset
 from engine import evaluate, train_one_epoch, train_one_epoch_mot, eval_mot
 from models import build_model
-
+from handy_profiler import Timer
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Deformable DETR Detector', add_help=False)
-    parser.add_argument('--lr', default=2e-4, type=float)
+    parser.add_argument('--lr', default=8e-4, type=float)
     parser.add_argument('--lr_backbone_names', default=["backbone.0"], type=str, nargs='+')
     parser.add_argument('--lr_backbone', default=2e-5, type=float)
     parser.add_argument('--lr_linear_proj_names', default=['reference_points', 'sampling_offsets',], type=str, nargs='+')
@@ -191,6 +191,9 @@ def get_args_parser():
     parser.add_argument('--sym_classes', default=[], nargs='+', type=int,
                                     help='Symmetric classes')  # [13, 16, 19, 20, 21]
     parser.add_argument('--pose_loss_coef', default=0.01, type=float)
+    
+    parser.add_argument('--profile', action='store_true')
+    
     return parser
 
 
@@ -202,6 +205,8 @@ def main(args):
         assert args.masks, "Frozen training is meant for segmentation only"
     print(args)
 
+    if args.profile:
+        Timer.enabled = True
     device = torch.device(args.device)
 
     # fix the seed for reproducibility
@@ -357,7 +362,7 @@ def main(args):
         if args.distributed:
             sampler_train.set_epoch(epoch)
         train_stats = train_func(
-            model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
+            model, criterion, data_loader_train, optimizer, device, epoch, str(output_dir), args.clip_max_norm, args.profile)
         lr_scheduler.step()
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth']
@@ -389,7 +394,8 @@ def main(args):
                     'epoch': epoch,
                     'args': args,
                 }, checkpoint_path)
-        
+        if args.profile:
+            break
         if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
             dataset_train.step_epoch()
             dataset_val.step_epoch()

@@ -145,9 +145,18 @@ def train_one_epoch_ddetr(model: torch.nn.Module, criterion: torch.nn.Module,
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
+import wandb
+
 def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, max_norm: float = 0):
+                    device: torch.device, epoch: int, exp_name: str,
+                    max_norm: float = 0, profile: bool = False):
+    if epoch == 0:
+        wandb.login()
+        wandb.init(project="bbox_train",
+                name=exp_name,
+                config={"lr":optimizer.param_groups[0]["lr"]})
+    
     model.train()
     criterion.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -155,9 +164,11 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
     # metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     metric_logger.add_meter('grad_norm', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 10
+    print_freq = 100
     # import ipdb; ipdb.set_trace()
     # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
+    
+    x_count = 0
     for data_dict in metric_logger.log_every(data_loader, print_freq, header):
         data_dict = data_dict_to_cuda(data_dict, device)
         outputs = model(data_dict)
@@ -189,14 +200,29 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
         else:
             grad_total_norm = utils.get_total_grad_norm(model.parameters(), max_norm)
         optimizer.step()
-
+        log_loss = {k:v.item() for k,v in loss_dict_reduced_scaled.items()}
+        frame_0_sum =0
+        frame_1_sum =0
+        for k, v in log_loss.items():
+            if 'frame_0' in k:
+                frame_0_sum += v
+            elif 'frame_1' in k:
+                frame_1_sum += v
+        log_loss['frame_0_sum'] = frame_0_sum
+        log_loss['frame_1_sum'] = frame_1_sum
+        # import ipdb; ipdb.set_trace()
+        wandb.log(log_loss)
         # metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
         metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
         # metric_logger.update(class_error=loss_dict_reduced['class_error'])
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         metric_logger.update(grad_norm=grad_total_norm)
         # gather the stats from all processes
-        
+        if profile:
+            if x_count == 10:
+                break
+            else:
+                x_count += 1
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
