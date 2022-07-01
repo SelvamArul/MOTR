@@ -329,18 +329,22 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='YCBV dataset test')
     parser.add_argument("--sampler_lengths", type=int, default=[2, 3, 4, 5], nargs="*")
-    parser.add_argument("--sample_interval", type=int, default=10)
+    parser.add_argument("--sample_interval", type=int, default=1)
     parser.add_argument("--sampler_steps", type=int, default=[50, 90, 150], nargs="*")
-    parser.add_argument("--sample_mode", default="random_interval")
+    parser.add_argument("--sample_mode", default="fixed_interval")
     parser.add_argument("--vis", action='store_true')
-    parser.add_argument("--dataset_path", default="/home/data/datasets/YCB_Video_Dataset/data/")
-    parser.add_argument("--dataset_desc_file_train", default="/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_mini.txt")
+    parser.add_argument("--dataset_path", default="/home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/")
+    parser.add_argument("--dataset_desc_file_train", default="/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_train.txt")
     parser.add_argument("--image_set", default="train")
 
     args = parser.parse_args()
     transforms = get_ycbv_transforms()
     dataset = YCBV(args, transforms)
-    d = dataset[10]
+    for i in range(10):
+        d = dataset[i+10]
+        print (d['gt_instances'][0].image_id)
+        print (d['gt_instances'][1].image_id)
+        print ("-----") 
     import ipdb; ipdb.set_trace()
 
 
