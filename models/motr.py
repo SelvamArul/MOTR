@@ -566,7 +566,7 @@ class MOTR(nn.Module):
         num_queries, dim = self.query_embed.weight.shape  # (300, 512)
         device = self.query_embed.weight.device
         # track_instances.ref_pts = self.transformer.reference_points(self.query_embed.weight[:, :dim // 2])
-        import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
         track_instances.query_pos = self.query_embed.weight
         track_instances.output_embedding = torch.zeros((num_queries, dim), device=device) # dim >> 1 -> dim for vanilla DETR compatibility
         track_instances.obj_idxes = torch.full((len(track_instances),), -1, dtype=torch.long, device=device)
@@ -613,7 +613,7 @@ class MOTR(nn.Module):
             src, mask = features[-1].decompose()
             assert mask is not None
 
-        import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
         '''
         srcs = []
         masks = []
@@ -644,7 +644,7 @@ class MOTR(nn.Module):
             # hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, track_instances.query_pos, ref_pts=track_instances.ref_pts)
         
             hs, memory = self.transformer(self.input_proj(src), mask, pos[-1], track_instances.query_pos) 
-        import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
         outputs_classes = []
         outputs_coords = []
         outputs_rots = []
@@ -674,7 +674,7 @@ class MOTR(nn.Module):
                     outputs_tran = self.trans_embed[lvl](hs[lvl])
                     outputs_trans.append(outputs_tran)
 
-            import ipdb; ipdb.set_trace()
+            # import ipdb; ipdb.set_trace()
             outputs_class = torch.stack(outputs_classes)
             outputs_coord = torch.stack(outputs_coords)
             if self.enable_pose:
@@ -727,7 +727,7 @@ class MOTR(nn.Module):
         tmp = {}
         tmp['init_track_instances'] = self._generate_empty_tracks()
         tmp['track_instances'] = track_instances
-        import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
         out_track_instances = self.track_embed(tmp)
         out['track_instances'] = out_track_instances
         return out

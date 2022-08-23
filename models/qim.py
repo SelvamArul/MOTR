@@ -182,7 +182,6 @@ class QueryInteractionModule(QueryInteractionBase):
         active_track_instances = self._select_active_tracks(data)
         active_track_instances = self._update_track_embedding(active_track_instances)
         init_track_instances: Instances = data['init_track_instances']
-        import ipdb; ipdb.set_trace()
         merged_track_instances = Instances.cat([init_track_instances, active_track_instances])
         return merged_track_instances
 
