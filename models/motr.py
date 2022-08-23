@@ -541,20 +541,20 @@ class MOTR(nn.Module):
             self.transformer.decoder.bbox_embed = self.bbox_embed
         else:
             nn.init.constant_(self.bbox_embed.layers[-1].bias.data[2:], -2.0)
-            self.class_embed = nn.ModuleList([self.class_embed for _ in range(num_pred)])
-            self.bbox_embed = nn.ModuleList([self.bbox_embed for _ in range(num_pred)])
+            # self.class_embed = nn.ModuleList([self.class_embed for _ in range(num_pred)])
+            # self.bbox_embed = nn.ModuleList([self.bbox_embed for _ in range(num_pred)])
             self.transformer.decoder.bbox_embed = None
         
         # pose prediction FFN
-        if enable_pose:
-            self.rot_embed = nn.ModuleList([self.rot_embed for _ in range(num_pred)])
-            self.trans_embed = nn.ModuleList([self.trans_embed for _ in range(num_pred)])
+        # if enable_pose:
+        #     self.rot_embed = nn.ModuleList([self.rot_embed for _ in range(num_pred)])
+        #     self.trans_embed = nn.ModuleList([self.trans_embed for _ in range(num_pred)])
 
-        if two_stage:
-            # hack implementation for two-stage
-            self.transformer.decoder.class_embed = self.class_embed
-            for box_embed in self.bbox_embed:
-                nn.init.constant_(box_embed.layers[-1].bias.data[2:], 0.0)
+        # if two_stage:
+        #     # hack implementation for two-stage
+        #     self.transformer.decoder.class_embed = self.class_embed
+        #     for box_embed in self.bbox_embed:
+        #         nn.init.constant_(box_embed.layers[-1].bias.data[2:], 0.0)
         self.post_process = TrackerPostProcess()
         self.track_base = RuntimeTrackerBase()
         self.criterion = criterion
@@ -656,8 +656,8 @@ class MOTR(nn.Module):
                 # else:
                 #     reference = inter_references[lvl - 1]
                 # reference = inverse_sigmoid(reference)
-                outputs_class = self.class_embed[lvl](hs[lvl])
-                tmp = self.bbox_embed[lvl](hs[lvl])
+                outputs_class = self.class_embed(hs[lvl])
+                tmp = self.bbox_embed(hs[lvl])
                 # if reference.shape[-1] == 4:
                 #     tmp += reference
                 # else:
@@ -669,9 +669,9 @@ class MOTR(nn.Module):
 
                 # pose FFN
                 if self.enable_pose:
-                    outputs_rot = self.rot_embed[lvl](hs[lvl])
+                    outputs_rot = self.rot_embed(hs[lvl])
                     outputs_rots.append(outputs_rot)
-                    outputs_tran = self.trans_embed[lvl](hs[lvl])
+                    outputs_tran = self.trans_embed(hs[lvl])
                     outputs_trans.append(outputs_tran)
 
             # import ipdb; ipdb.set_trace()
