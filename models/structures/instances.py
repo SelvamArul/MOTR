@@ -183,6 +183,7 @@ class Instances:
             values = [i.get(k) for i in instance_lists]
             v0 = values[0]
             if isinstance(v0, torch.Tensor):
+                import ipdb; ipdb.set_trace()
                 values = torch.cat(values, dim=0)
             elif isinstance(v0, list):
                 values = list(itertools.chain(*values))

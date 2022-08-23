@@ -65,16 +65,19 @@ class PoseEvaluator(object):
 
         dts_labels = dts['labels'][keep]
         dts_boxes = dts['boxes'][keep] if 'boxes' in dts else None
-        dts_rot = dts['rotations'][keep]
-        dts_trans = dts['translations'][keep]
+        dts_rot = dts['rotations'][keep] if 'rotations' in dts else None
+        dts_trans = dts['translations'][keep] if 'translations' in dts else None
         gts_ind, dts_ind = [], []
         try:
             for l in np.unique(dts_labels):
                 mask_g, mask_d = labels == l, dts_labels == l
                 if mask_g.sum() > 0:
                     # import ipdb; ipdb.set_trace()
-                    costs = norm(rot_errors(gts['rotations'][mask_g], dts_rot[mask_d]))
-                    costs += norm(np.linalg.norm(gts['translations'][mask_g][:, None] - dts_trans[mask_d][None], axis=2))
+                    costs = 0
+                    if dts_rot is not None:
+                        costs += norm(rot_errors(gts['rotations'][mask_g], dts_rot[mask_d]))
+                    if dts_trans is not None:
+                        costs += norm(np.linalg.norm(gts['translations'][mask_g][:, None] - dts_trans[mask_d][None], axis=2))
                     if dts_boxes is not None:
                         costs += norm(bbox_overlaps(gts['boxes'][mask_g], dts_boxes[mask_d]))
                     gts_tmp_ind, dts_tmp_ind = linear_sum_assignment(costs)
@@ -92,8 +95,10 @@ class PoseEvaluator(object):
         gts = {}
         gts['labels'] = gt_instances.labels.detach().cpu().numpy()
         gts['boxes'] = gt_instances.boxes.detach().cpu().numpy().astype('float32')
-        gts['translations'] = gt_instances.translations.detach().cpu().numpy().astype('float32')
-        gts['rotations'] = gt_instances.rotations.detach().cpu().numpy().astype('float32')
+        if hasattr(gt_instances, 'translations'):
+            gts['translations'] = gt_instances.translations.detach().cpu().numpy().astype('float32')
+        if hasattr(gt_instances, 'rotations'):
+            gts['rotations'] = gt_instances.rotations.detach().cpu().numpy().astype('float32')
         gts['image_id'] = gt_instances.image_id[0].detach().cpu().item()
         # import ipdb; ipdb.set_trace()
         return gts
@@ -101,8 +106,9 @@ class PoseEvaluator(object):
         dts = {}
         dts['scores'] = outputs['pred_logits'][k].detach().squeeze().max(dim=-1).values.cpu().numpy()
         dts['boxes'] = outputs['pred_boxes'][k].detach().squeeze().cpu().numpy()
-        dts['translations'] = outputs['pred_translations'][k].detach().squeeze().cpu().numpy()
-        dts['rotations'] = rot6d2mat(outputs['pred_rotations'][k].detach()).squeeze().cpu().numpy()
+        if len(outputs['pred_translations'])!=0:
+            dts['translations'] = outputs['pred_translations'][k].detach().squeeze().cpu().numpy()
+            dts['rotations'] = rot6d2mat(outputs['pred_rotations'][k].detach()).squeeze().cpu().numpy()
         _labels = outputs['pred_logits'][k].detach().squeeze().max(dim=-1).indices.cpu().numpy()
         dts['labels'] = _labels
         # import ipdb; ipdb.set_trace()
@@ -115,14 +121,19 @@ class PoseEvaluator(object):
             gt_frame = gt_instances[frame]
             gts = self.gt_instances_to_dict(gt_frame)
             dts = self.outputs_to_dts(outputs, frame)
-            scores, dts_rot, dts_trans = dts['scores'], dts['rotations'], dts['translations']
-            labels, gts_rot, gts_trans = gts['labels'], gts['rotations'], gts['translations']
+            if 'rotations' in dts:
+                scores, dts_rot, dts_trans = dts['scores'], dts['rotations'], dts['translations']
+                labels, gts_rot, gts_trans = gts['labels'], gts['rotations'], gts['translations']
+                errors = ["class", "score", "add", "adds", "te", "re"]  # "xyz", #'proj' FIXME ARUL proj metric
+            else:
+                scores = dts['scores']
+                labels = gts['labels']
+                errors = ["class", "score"]  # "xyz", #'proj' FIXME ARUL proj metric
             # import ipdb; ipdb.set_trace()
             if 'keypoints' in dts:
                 dts_kpts, gts_kpts = dts['keypoints'], gts['keypoints']
             scene_id, im_id = int(gts['image_id']), int(gts['image_id'])
             # mat = {'poses': [], 'rois': []}
-            errors = ["class", "score", "add", "adds", "te", "re"]  # "xyz", #'proj' FIXME ARUL proj metric
             image_errors = {}
             image_errors['class'] = labels
             image_errors['score'] = np.ones_like(labels) * -np.inf

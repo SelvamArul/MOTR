@@ -29,11 +29,12 @@ from models.structures import Instances, Boxes, pairwise_iou, matched_boxlist_io
 from .backbone import build_backbone
 from .matcher import build_matcher
 from .deformable_transformer_plus import build_deforamble_transformer
+from .vanilla_transformer import build_transformer
 from .qim import build as build_query_interaction_layer
 from .memory_bank import build_memory_bank
 from .deformable_detr import SetCriterion, MLP
 from .segmentation import sigmoid_focal_loss
-from .pose import axis_angle_rotate, rotation_6d_rotate, PostProcessPose
+from .pose import axangle_rotate, rotate, PostProcessPose
 
 from util import mesh_tools
 from handy_profiler import Timer
@@ -173,8 +174,8 @@ class ClipMatcher(SetCriterion):
         src_translations = outputs['pred_translations'][idx] * 1000
         target_translations = torch.cat([t.translations[i] for t, (_, i) in zip(targets, indices)], dim=0).type(src_translations.dtype)
         points = self.model_points[target_classes - 1]
-        src_transformations = rotation_6d_rotate(points, pose_ops.rot6d2mat(src_rotations)) + src_translations.unsqueeze(1)
-        target_transformations = rotation_6d_rotate(points, target_rotations.contiguous().view(-1, 3, 3)) + target_translations.unsqueeze(1)
+        src_transformations = rotate(points, pose_ops.rot6d2mat(src_rotations)) + src_translations.unsqueeze(1)
+        target_transformations = rotate(points, target_rotations.contiguous().view(-1, 3, 3)) + target_translations.unsqueeze(1)
 
         diffs = target_classes[:, None] - self.symmetric_classes[None]
         asyms = target_classes > 0
@@ -295,7 +296,8 @@ class ClipMatcher(SetCriterion):
         untracked_tgt_indexes = torch.arange(len(gt_instances_i)).to(pred_logits_i.device)[tgt_state == 0]
         # untracked_tgt_indexes = select_unmatched_indexes(tgt_indexes, len(gt_instances_i))
         untracked_gt_instances = gt_instances_i[untracked_tgt_indexes]
-
+        
+        # import ipdb; ipdb.set_trace()
         def match_for_single_decoder_layer(unmatched_outputs, matcher):
             new_track_indices = matcher(unmatched_outputs,
                                              [untracked_gt_instances])  # list[tuple(src_idx, tgt_idx)]
@@ -484,7 +486,8 @@ class MOTR(nn.Module):
             self.trans_embed = MLP(hidden_dim, hidden_dim, 3, 3) 
         self.num_feature_levels = num_feature_levels
         if not two_stage:
-            self.query_embed = nn.Embedding(num_queries, hidden_dim * 2)
+            self.query_embed = nn.Embedding(num_queries, hidden_dim) # Vanilla DETR compatibility
+        '''
         if num_feature_levels > 1:
             num_backbone_outs = len(backbone.strides)
             input_proj_list = []
@@ -507,6 +510,8 @@ class MOTR(nn.Module):
                     nn.Conv2d(backbone.num_channels[0], hidden_dim, kernel_size=1),
                     nn.GroupNorm(32, hidden_dim),
                 )])
+        '''
+        self.input_proj = nn.Conv2d(backbone.num_channels[0], hidden_dim, kernel_size=1)
         self.backbone = backbone
         self.aux_loss = aux_loss
         self.with_box_refine = with_box_refine
@@ -522,9 +527,9 @@ class MOTR(nn.Module):
             nn.init.constant_(self.trans_embed.layers[-1].weight.data, 0)
             nn.init.constant_(self.rot_embed.layers[-1].bias.data, 0)
             nn.init.constant_(self.trans_embed.layers[-1].bias.data, 0)
-        for proj in self.input_proj:
-            nn.init.xavier_uniform_(proj[0].weight, gain=1)
-            nn.init.constant_(proj[0].bias, 0)
+        # for proj in self.input_proj:
+        #     nn.init.xavier_uniform_(proj[0].weight, gain=1)
+        #     nn.init.constant_(proj[0].bias, 0)
 
         # if two-stage, the last class_embed and bbox_embed is for region proposal generation
         num_pred = (transformer.decoder.num_layers + 1) if two_stage else transformer.decoder.num_layers
@@ -560,9 +565,10 @@ class MOTR(nn.Module):
         track_instances = Instances((1, 1))
         num_queries, dim = self.query_embed.weight.shape  # (300, 512)
         device = self.query_embed.weight.device
-        track_instances.ref_pts = self.transformer.reference_points(self.query_embed.weight[:, :dim // 2])
+        # track_instances.ref_pts = self.transformer.reference_points(self.query_embed.weight[:, :dim // 2])
+        import ipdb; ipdb.set_trace()
         track_instances.query_pos = self.query_embed.weight
-        track_instances.output_embedding = torch.zeros((num_queries, dim >> 1), device=device)
+        track_instances.output_embedding = torch.zeros((num_queries, dim), device=device) # dim >> 1 -> dim for vanilla DETR compatibility
         track_instances.obj_idxes = torch.full((len(track_instances),), -1, dtype=torch.long, device=device)
         track_instances.matched_gt_idxes = torch.full((len(track_instances),), -1, dtype=torch.long, device=device)
         track_instances.disappear_time = torch.zeros((len(track_instances), ), dtype=torch.long, device=device)
@@ -607,6 +613,8 @@ class MOTR(nn.Module):
             src, mask = features[-1].decompose()
             assert mask is not None
 
+        import ipdb; ipdb.set_trace()
+        '''
         srcs = []
         masks = []
         with Timer('projection'):
@@ -629,26 +637,32 @@ class MOTR(nn.Module):
                     srcs.append(src)
                     masks.append(mask)
                     pos.append(pos_l)
+        import ipdb; ipdb.set_trace()
+        '''
         with Timer('transformer'):
-            hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, track_instances.query_pos, ref_pts=track_instances.ref_pts)
+            #                                                                          def forward(self, srcs, masks, pos_embeds, query_embed=None, ref_pts=None):
+            # hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, track_instances.query_pos, ref_pts=track_instances.ref_pts)
+        
+            hs, memory = self.transformer(self.input_proj(src), mask, pos[-1], track_instances.query_pos) 
+        import ipdb; ipdb.set_trace()
         outputs_classes = []
         outputs_coords = []
         outputs_rots = []
         outputs_trans = []
         with Timer('FFN'):
             for lvl in range(hs.shape[0]):
-                if lvl == 0:
-                    reference = init_reference
-                else:
-                    reference = inter_references[lvl - 1]
-                reference = inverse_sigmoid(reference)
+                # if lvl == 0:
+                #     reference = init_reference
+                # else:
+                #     reference = inter_references[lvl - 1]
+                # reference = inverse_sigmoid(reference)
                 outputs_class = self.class_embed[lvl](hs[lvl])
                 tmp = self.bbox_embed[lvl](hs[lvl])
-                if reference.shape[-1] == 4:
-                    tmp += reference
-                else:
-                    assert reference.shape[-1] == 2
-                    tmp[..., :2] += reference
+                # if reference.shape[-1] == 4:
+                #     tmp += reference
+                # else:
+                #     assert reference.shape[-1] == 2
+                #     tmp[..., :2] += reference
                 outputs_coord = tmp.sigmoid()
                 outputs_classes.append(outputs_class)
                 outputs_coords.append(outputs_coord)
@@ -660,16 +674,17 @@ class MOTR(nn.Module):
                     outputs_tran = self.trans_embed[lvl](hs[lvl])
                     outputs_trans.append(outputs_tran)
 
+            import ipdb; ipdb.set_trace()
             outputs_class = torch.stack(outputs_classes)
             outputs_coord = torch.stack(outputs_coords)
             if self.enable_pose:
                 outputs_rot = torch.stack(outputs_rots)
                 outputs_tran = torch.stack(outputs_trans)
 
-        ref_pts_all = torch.cat([init_reference[None], inter_references[:, :, :, :2]], dim=0)
+        # ref_pts_all = torch.cat([init_reference[None], inter_references[:, :, :, :2]], dim=0)
         
 
-        out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1], 'ref_pts': ref_pts_all[5]}
+        out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1], 'ref_pts': None}
         if self.enable_pose:
             out['pred_translations'] = outputs_tran[-1]
             out['pred_rotations'] = outputs_rot[-1]
@@ -712,6 +727,7 @@ class MOTR(nn.Module):
         tmp = {}
         tmp['init_track_instances'] = self._generate_empty_tracks()
         tmp['track_instances'] = track_instances
+        import ipdb; ipdb.set_trace()
         out_track_instances = self.track_embed(tmp)
         out['track_instances'] = out_track_instances
         return out
@@ -757,6 +773,7 @@ class MOTR(nn.Module):
                     frame = nested_tensor_from_tensor_list([frame])
                 frame_res = self._forward_single_image(frame, track_instances)
                 track_instances = frame_res['track_instances']
+                # import ipdb; ipdb.set_trace()
                 outputs['pred_logits'].append(frame_res['pred_logits'])
                 outputs['pred_boxes'].append(frame_res['pred_boxes'])
                 if self.enable_pose:
@@ -787,7 +804,8 @@ def build(args):
 
     backbone = build_backbone(args)
 
-    transformer = build_deforamble_transformer(args)
+    # transformer = build_deforamble_transformer(args)
+    transformer = build_transformer(args)
     d_model = transformer.d_model
     hidden_dim = args.dim_feedforward
     query_interaction_layer = build_query_interaction_layer(args, args.query_interaction_layer, d_model, hidden_dim, d_model*2)

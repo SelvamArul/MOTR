@@ -77,7 +77,7 @@ def get_args_parser():
                         help="Type of positional embedding to use on top of the image features")
     parser.add_argument('--position_embedding_scale', default=2 * np.pi, type=float,
                         help="position / size * scale")
-    parser.add_argument('--num_feature_levels', default=4, type=int, help='number of feature levels')
+    parser.add_argument('--num_feature_levels', default=1, type=int, help='number of feature levels')
 
     # * Transformer
     parser.add_argument('--enc_layers', default=6, type=int,
@@ -95,6 +95,13 @@ def get_args_parser():
     parser.add_argument('--num_queries', default=300, type=int,
                         help="Number of query slots")
     parser.add_argument('--dec_n_points', default=4, type=int)
+
+
+    # vanilla transformer args
+    parser.add_argument('--pre_norm', action='store_true')
+    parser.add_argument('--transformer', default='vanilla', type=str,
+            help="Name of the transformer to use")
+
     parser.add_argument('--enc_n_points', default=4, type=int)
     parser.add_argument('--decoder_cross_self', default=False, action='store_true')
     parser.add_argument('--sigmoid_attn', default=False, action='store_true')
@@ -314,6 +321,14 @@ def main(args):
             print ("Loading checkpoint ", args.resume)
             print ("*"*30)
             checkpoint = torch.load(args.resume, map_location='cpu')
+        class_embed_keys = []
+        for k in checkpoint['model'].keys():
+            if 'class_embed' in k:
+                class_embed_keys.append(k)  
+        print ("Deleting module:")
+        for k in class_embed_keys:
+            print (k)
+            del checkpoint['model'][k]
         missing_keys, unexpected_keys = model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
         unexpected_keys = [k for k in unexpected_keys if not (k.endswith('total_params') or k.endswith('total_ops'))]
         if len(missing_keys) > 0:

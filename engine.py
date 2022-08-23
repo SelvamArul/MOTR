@@ -151,11 +151,11 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, exp_name: str,
                     max_norm: float = 0, profile: bool = False):
-    if epoch == 0:
-        wandb.login()
-        wandb.init(project="bbox_train",
-                name=exp_name,
-                config={"lr":optimizer.param_groups[0]["lr"]})
+    # if epoch == 0:
+    #     wandb.login()
+    #     wandb.init(project="debug",
+    #             name=exp_name,
+    #             config={"lr":optimizer.param_groups[0]["lr"]})
     
     model.train()
     criterion.train()
@@ -210,8 +210,13 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
                 frame_1_sum += v
         log_loss['frame_0_sum'] = frame_0_sum
         log_loss['frame_1_sum'] = frame_1_sum
+
+        log_loss_trim  = {}
+        for k, v in log_loss.items():
+            if 'aux' not in k:
+                log_loss_trim[k] = v
         # import ipdb; ipdb.set_trace()
-        wandb.log(log_loss)
+        # wandb.log(log_loss_trim)
         # metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
         metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
         # metric_logger.update(class_error=loss_dict_reduced['class_error'])
@@ -310,6 +315,7 @@ def eval_mot_bbox(model: torch.nn.Module,
         # metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
         # metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         _card_error += compute_cardinality_error(outputs, data_dict, x_count)
+        import ipdb; ipdb.set_trace()
         x_count += 1
     print ("Total error ", _card_error)
     import ipdb; ipdb.set_trace()

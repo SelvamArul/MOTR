@@ -1,10 +1,10 @@
 import cv2
 import torch
+import torch.nn.functional as F
+import kornia
 import numpy as np
 import pinocchio as pin
 # import eigenpy
-from scipy.spatial.transform import Rotation
-from pytorch3d.transforms import matrix_to_quaternion, quaternion_to_axis_angle, axis_angle_to_quaternion, quaternion_to_matrix
 # eigenpy.switchToNumpyArray()
 
 
@@ -26,73 +26,185 @@ def transform_poses(poses, intrinsic, transform, scale, inv=False):
     return new_poses
 
 
-def mat2vec(matrices):
-    matrices = matrices.numpy()
-    # r = Rotation.from_matrix(matrices)
-    # return torch.from_numpy(r.as_rotvec().astype(np.float32))
-    vectors = []
-    for i in range(matrices.shape[0]):
-        vec, _ = cv2.Rodrigues(matrices[i])
-        vectors.append(np.squeeze(vec))
-    vectors = np.stack(vectors).astype(np.float32) if len(vectors) else np.asarray([], dtype=np.float32)
-    return torch.from_numpy(vectors)
+def affine_transform(points, transform):
+    points_reshaped = points.view(-1, 2)
+    points_transformed = torch.matmul(torch.cat(
+        [points_reshaped, torch.ones((points_reshaped.size(0), 1), dtype=points_reshaped.dtype, device=points_reshaped.device)], dim=1), transform.t())
+    return points_transformed.view(points.shape)
 
 
-def vec2mat(vectors):
-    vectors = vectors.cpu().numpy()
-    # r = Rotation.from_rotvec(vectors)
-    # return torch.from_numpy(r.as_matrix().astype(np.float32))
-    matrices = []
-    for i in range(vectors.shape[0]):
-        mat, _ = cv2.Rodrigues(vectors[i])
-        matrices.append(mat)
-    matrices = np.stack(matrices).astype(np.float32) if len(matrices) else np.asarray([], dtype=np.float32)
-    return torch.from_numpy(matrices)
+def mat2axangle(matrices):
+    return kornia.rotation_matrix_to_angle_axis(matrices)
+
+
+def axangle2mat(vectors):
+    return kornia.angle_axis_to_rotation_matrix(vectors)
 
 
 def mat2quat(matrices):
-    r = Rotation.from_matrix(matrices.numpy())
-    return torch.from_numpy(r.as_quat().astype(np.float32))
+    return kornia.rotation_matrix_to_quaternion(matrices)
 
 
 def quat2mat(quaternions):
-    r = Rotation.from_quat(quaternions.numpy())
-    return torch.from_numpy(r.as_matrix().astype(np.float32))
-
-
-def mat2euler(matrices):
-    r = Rotation.from_matrix(matrices.numpy())
-    return torch.from_numpy(r.as_euler('xyz', degrees=False).astype(np.float32))
-
-
-def euler2mat(angles):
-    r = Rotation.from_euler('xyz', angles.numpy(), degrees=False)
-    return torch.from_numpy(r.as_matrix().astype(np.float32))
+    return kornia.quaternion_to_rotation_matrix(quaternions)
 
 
 def mat2rot6d(matrices):
-    return matrices[..., :6]
+    return torch.cat([matrices[..., 0], matrices[..., 1]], dim=1)
 
 
-def rot6d2mat(ortho6d):
-    x_raw = ortho6d[..., :3]
-    y_raw = ortho6d[..., 3:]
-    x = x_raw / torch.norm(x_raw, p=2, dim=-1, keepdim=True)
+def rot6d2mat(ortho6ds):
+    x_raw = ortho6ds[..., :3]
+    y_raw = ortho6ds[..., 3:]
+    x = F.normalize(x_raw, p=2, dim=-1, eps=1e-8)
     z = torch.cross(x, y_raw, dim=-1)
-    z = z / torch.norm(z, p=2, dim=-1, keepdim=True)
+    z = F.normalize(z, p=2, dim=-1, eps=1e-8)
     y = torch.cross(z, x, dim=-1)
-    return torch.stack((x, y, z), -1)
+    return torch.stack((x, y, z), dim=-1)
 
 
-def re(outs, tgts):
-    diff = torch.bmm(outs, tgts.transpose(-2, -1))  # torch.linalg.inv(b)
-    trace = torch.diagonal(diff, dim1=-2, dim2=-1).sum(-1)  # torch.einsum('bii->b', diff)
-    # numerical stability
-    trace[trace > 3] = 3
-    error_cos = torch.clamp(0.5 * (trace - 1.0), -1.0, 1.0)
+def axangle2mat(axes, angles, is_normalized=False):
+    # http://en.wikipedia.org/wiki/Rotation_matrix#Axis_and_angle
+    if not is_normalized:
+        axes = F.normalize(axes, p=2, dim=1, eps=1e-8)
+    x, y, z = axes.unbind(1)
+    c = torch.cos(angles)
+    s = torch.sin(angles)
+    xs, ys, zs = x * s, y * s, z * s
+    xc, yc, zc = x * (1 - c), y * (1 - c), z * (1 - c)
+    xyc, yzc, zxc = x * yc, y * zc, z * xc
+    rot_mat = torch.stack(
+        [x * xc + c, xyc - zs, zxc + ys, xyc + zs, y * yc + c, yzc - xs, zxc - ys, yzc + xs, z * zc + c], dim=1)
+    return rot_mat.view(-1, 3, 3)
 
-    error = torch.rad2deg(torch.acos(error_cos))
-    return error
+
+def ego2allo(ego_poses, src_type="mat", dst_type="mat", cam_ray=[0, 0, 1.0]):
+    """Given an allocentric (object-centric) pose, compute new camera-centric
+    pose Since we do detection on the image plane and our kernels are
+    2D-translationally invariant, we need to ensure that rendered objects
+    always look identical, independent of where we render them.
+
+    Since objects further away from the optical center undergo skewing,
+    we try to visually correct by rotating back the amount between
+    optical center ray and object centroid ray. Another way to solve
+    that might be translational variance
+    (https://arxiv.org/abs/1807.03247)
+    """
+    # compute rotation between ray to object centroid and optical center ray
+    if src_type == "mat":
+        trans = ego_poses[:, :3, 3]
+    else:
+        raise ValueError("src_type should be mat or quat, got: {}".format(src_type))
+    obj_ray = F.normalize(trans, p=2, dim=1, eps=1e-8)
+    cam_ray = torch.as_tensor(cam_ray, dtype=obj_ray.dtype, device=obj_ray.device)
+    angle = torch.acos(torch.sum(cam_ray * obj_ray, dim=1))  # dot product
+
+    # # rotate back by that amount
+    mask = angle > 0
+    allo_poses = ego_poses.clone()
+    if dst_type == "mat":
+        rot_mat = axangle2mat(torch.cross(cam_ray.expand(mask.sum(), -1), obj_ray[mask], dim=1), -angle[mask])
+        if src_type == "mat":
+            allo_poses[mask, :3, :3] = torch.matmul(rot_mat, ego_poses[mask, :3, :3])
+    else:
+        raise ValueError("dst_type should be mat or quat, got: {}".format(dst_type))
+    return allo_poses
+
+
+def allo2ego(allo_poses, src_type="mat", dst_type="mat", cam_ray=[0, 0, 1.0]):
+    """Given an allocentric (object-centric) pose, compute new camera-centric
+    pose Since we do detection on the image plane and our kernels are
+    2D-translationally invariant, we need to ensure that rendered objects
+    always look identical, independent of where we render them.
+
+    Since objects further away from the optical center undergo skewing,
+    we try to visually correct by rotating back the amount between
+    optical center ray and object centroid ray. Another way to solve
+    that might be translational variance
+    (https://arxiv.org/abs/1807.03247)
+    """
+    # compute rotation between ray to object centroid and optical center ray
+    if src_type == "mat":
+        trans = allo_poses[:, :3, 3]
+    else:
+        raise ValueError("src_type should be mat or quat, got: {}".format(src_type))
+    obj_ray = F.normalize(trans, p=2, dim=1, eps=1e-8)
+    cam_ray = torch.as_tensor(cam_ray, dtype=obj_ray.dtype, device=obj_ray.device)
+    angle = torch.acos(torch.sum(cam_ray * obj_ray, dim=1))  # dot product
+
+    # # rotate back by that amount
+    mask = angle > 0
+    ego_poses = allo_poses.clone()
+    if dst_type == "mat":
+        rot_mat = axangle2mat(torch.cross(cam_ray.expand(mask.sum(), -1), obj_ray[mask], dim=1), angle[mask])
+        if src_type == "mat":
+            ego_poses[mask, :3, :3] = torch.matmul(rot_mat, allo_poses[mask, :3, :3])
+    else:
+        raise ValueError("dst_type should be mat or quat, got: {}".format(dst_type))
+    return ego_poses
+
+
+def points_to_2d(points, R, t, K):
+    # using opencv
+    points_2d, _ = cv2.projectPoints(points, R, t, K, None)
+    points_2d = points_2d[:, 0]
+    points_in_world = np.matmul(R, points.T) + t[:, None]  # (3, N)
+    # points_in_camera = np.matmul(K, points_in_world)  # (3, N), z is not changed in this step
+    # points_2d = np.zeros((2, points_in_world.shape[1]))  # (2, N)
+    # points_2d[0, :] = points_in_camera[0, :] / (points_in_camera[2, :] + 1e-15)
+    # points_2d[1, :] = points_in_camera[1, :] / (points_in_camera[2, :] + 1e-15)
+    # points_2d = points_2d.T
+    z = points_in_world[2]
+    return points_2d, z
+
+
+def pnp(points_3d, points_2d, camera_matrix, method=cv2.SOLVEPNP_EPNP, ransac=False, ransac_reprojErr=3.0, ransac_iter=100):
+    """
+    method: cv2.SOLVEPNP_P3P, cv2.SOLVEPNP_DLS, cv2.SOLVEPNP_EPNP, cv2.SOLVEPNP_ITERATIVE
+        DLS seems to be similar to EPNP
+        SOLVEPNP_EPNP does not work with no ransac
+    RANSAC:
+        CDPN: 3.0, 100
+        default ransac params:   float reprojectionError=8.0, int iterationsCount=100, double confidence=0.99
+        in DPOD paper: reproj error=1.0, ransac_iter=150
+    """
+    dist_coeffs = np.zeros(shape=[8, 1], dtype=np.float64)
+
+    assert points_3d.shape[0] == points_2d.shape[0], "points 3D and points 2D must have same number of vertices"
+    if method == cv2.SOLVEPNP_EPNP:
+        points_3d = points_3d[None]
+        points_2d = points_2d[None]
+
+    points_2d = np.ascontiguousarray(points_2d.astype(np.float64))
+    points_3d = np.ascontiguousarray(points_3d)
+    # camera_matrix = camera_matrix.astype(np.float64)
+    if not ransac:
+        _, R_exp, t = cv2.solvePnP(points_3d, points_2d, camera_matrix, dist_coeffs, flags=method)
+    else:
+        _, R_exp, t, inliers = cv2.solvePnPRansac(
+            points_3d,
+            points_2d,
+            camera_matrix,
+            dist_coeffs,
+            flags=method,  # cv2.SOLVEPNP_EPNP,
+            reprojectionError=ransac_reprojErr,
+            iterationsCount=ransac_iter
+        )
+    # , None, None, False, cv2.SOLVEPNP_UPNP)
+
+    # R_exp, t, _ = cv2.solvePnPRansac(points_3D,
+    #                            points_2D,
+    #                            cameraMatrix,
+    #                            distCoeffs,
+    #                            reprojectionError=12.0)
+
+    R, _ = cv2.Rodrigues(R_exp)  # R = cv2.Rodrigues(R_exp, jacobian=0)[0]
+    # trans_3d=np.matmul(points_3d, R.transpose()) + t.transpose()
+    # if np.max(trans_3d[:,2]<0):
+    #     R=-R
+    #     t=-t
+
+    return R, t
 
 
 class Transform:

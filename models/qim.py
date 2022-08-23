@@ -149,8 +149,8 @@ class QueryInteractionModule(QueryInteractionBase):
             return track_instances
         dim = track_instances.query_pos.shape[1]
         out_embed = track_instances.output_embedding
-        query_pos = track_instances.query_pos[:, :dim // 2]
-        query_feat = track_instances.query_pos[:, dim//2:]
+        query_pos = track_instances.query_pos   #[:, :dim // 2]
+        # query_feat = track_instances.query_pos[:, dim//2:]
         q = k = query_pos + out_embed
 
         tgt = out_embed
@@ -166,20 +166,23 @@ class QueryInteractionModule(QueryInteractionBase):
             query_pos2 = self.linear_pos2(self.dropout_pos1(self.activation(self.linear_pos1(tgt))))
             query_pos = query_pos + self.dropout_pos2(query_pos2)
             query_pos = self.norm_pos(query_pos)
-            track_instances.query_pos[:, :dim // 2] = query_pos
-
+            # track_instances.query_pos[:, :dim // 2] = query_pos
+            track_instances.query_pos = query_pos
+        '''
         query_feat2 = self.linear_feat2(self.dropout_feat1(self.activation(self.linear_feat1(tgt))))
         query_feat = query_feat + self.dropout_feat2(query_feat2)
         query_feat = self.norm_feat(query_feat)
         track_instances.query_pos[:, dim//2:] = query_feat
 
         track_instances.ref_pts = inverse_sigmoid(track_instances.pred_boxes[:, :2].detach().clone())
+        '''
         return track_instances
 
     def forward(self, data) -> Instances:
         active_track_instances = self._select_active_tracks(data)
         active_track_instances = self._update_track_embedding(active_track_instances)
         init_track_instances: Instances = data['init_track_instances']
+        import ipdb; ipdb.set_trace()
         merged_track_instances = Instances.cat([init_track_instances, active_track_instances])
         return merged_track_instances
 

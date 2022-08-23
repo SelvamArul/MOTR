@@ -341,7 +341,8 @@ if __name__ == '__main__':
     transforms = get_ycbv_transforms()
     dataset = YCBV(args, transforms)
     for i in range(10):
-        d = dataset[i+10]
+        d = dataset[i+2000]
+        import ipdb; ipdb.set_trace()
         print (d['gt_instances'][0].image_id)
         print (d['gt_instances'][1].image_id)
         print ("-----") 
