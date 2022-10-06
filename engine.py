@@ -151,11 +151,11 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, exp_name: str,
                     max_norm: float = 0, profile: bool = False):
-    # if epoch == 0:
-    #     wandb.login()
-    #     wandb.init(project="debug",
-    #             name=exp_name,
-    #             config={"lr":optimizer.param_groups[0]["lr"]})
+    if epoch == 0:
+        wandb.login()
+        wandb.init(project="temporal_pose",
+                name=exp_name,
+                config={"lr":optimizer.param_groups[0]["lr"]})
     
     model.train()
     criterion.train()
@@ -203,20 +203,36 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
         log_loss = {k:v.item() for k,v in loss_dict_reduced_scaled.items()}
         frame_0_sum =0
         frame_1_sum =0
+        frame_2_sum =0
+        frame_3_sum =0
+        frame_4_sum =0
+        frame_5_sum =0
         for k, v in log_loss.items():
             if 'frame_0' in k:
                 frame_0_sum += v
             elif 'frame_1' in k:
                 frame_1_sum += v
+            elif 'frame_2' in k:
+                frame_2_sum += v
+            elif 'frame_3' in k:
+                frame_3_sum += v
+            elif 'frame_4' in k:
+                frame_4_sum += v
+            elif 'frame_5' in k:
+                frame_5_sum += v
         log_loss['frame_0_sum'] = frame_0_sum
         log_loss['frame_1_sum'] = frame_1_sum
+        log_loss['frame_2_sum'] = frame_2_sum
+        log_loss['frame_3_sum'] = frame_3_sum
+        log_loss['frame_4_sum'] = frame_4_sum
+        log_loss['frame_5_sum'] = frame_5_sum
 
         log_loss_trim  = {}
         for k, v in log_loss.items():
             if 'aux' not in k:
                 log_loss_trim[k] = v
         # import ipdb; ipdb.set_trace()
-        # wandb.log(log_loss_trim)
+        wandb.log(log_loss_trim)
         # metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
         metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
         # metric_logger.update(class_error=loss_dict_reduced['class_error'])
@@ -254,7 +270,13 @@ def eval_mot_bbox(model: torch.nn.Module,
         _cardinality_error = 0
         for i in range(bs):
             _pred_idx = outputs['pred_logits'][i][0].max(dim=-1).indices
+            _pl = outputs['pred_logits'][i][0]
             pred_idx = _pred_idx[_pred_idx != 22]
+            _pp = torch.nn.functional.softmax(_pl, dim=-1)
+            # print ("Probs ", _pp[pred_idx].max(dim=-1))
+            _ppi = outputs['pred_logits'][i][0].max(dim=-1, keepdim=True).indices
+            _pm = _ppi != 22
+            print (torch.gather(_pp, -1, _ppi)[_pm])
             gt_idx = data_dict['gt_instances'][i].get_fields()['labels']
             pred_idx = pred_idx.sort().values
             gt_idx = gt_idx.sort().values
@@ -264,14 +286,18 @@ def eval_mot_bbox(model: torch.nn.Module,
             pred_cnt = Counter(pred_list)
             missing_ids = [k for k, counts in pred_cnt.items() if gt_cnt[k] != counts]
             cardinality_error = len(missing_ids) 
+            # import ipdb ; ipdb.set_trace()
             _cardinality_error += cardinality_error
 
             if cardinality_error == 0:
-                # print (x_count, gt_idx.tolist(), pred_idx.tolist(), cardinality_error)
-                pass
+                rprint(x_count, gt_idx.tolist(), pred_idx.tolist(), f"[bold red] {cardinality_error} [/bold red]   :thumbsup:")
+                print ("Ok")
+                # pass
             else:
                 rprint(x_count, gt_idx.tolist(), pred_idx.tolist(), f"[bold red] {cardinality_error} [/bold red]   :warning:")
                 rprint(missing_ids)
+            import ipdb; ipdb.set_trace()
+            print()
         return _cardinality_error
     model.train() # TODO
     criterion.train()

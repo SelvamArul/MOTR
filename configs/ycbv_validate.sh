@@ -8,7 +8,6 @@ shopt -s expand_aliases
 
 
 # for MOT17
-    # --resume '/home/user/periyasa/workspace/MOTR/exps/det_from_motr_18-Aug-2022_14:54/checkpoint.pth' \
 
 alias xpython="singularity run -B /home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET,/home/nfs/inf6/data/datasets/ycbv_coco,$HOME/.local/bin --env PATH=$HOME/.local/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --nv /home/cache/containers/motr_image.sif python"
 EXP_DIR=exps/pose_eval
@@ -18,8 +17,8 @@ xpython validation.py\
     --dataset_path '/home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/'\
     --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_train.txt'\
     --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_val.txt'\
+    --resume '/home/user/periyasa/workspace/MOTR/exps/vanilla_detr_23-Aug-2022_17:45/checkpoint.pth' \
     --epoch 200 \
-    --with_box_refine \
     --lr_drop 100 \
     --lr 2e-4 \
     --lr_backbone 2e-5 \
@@ -28,7 +27,7 @@ xpython validation.py\
     --sample_mode 'fixed_interval' \
     --sample_interval 2 \
     --sampler_steps 50 90 150 \
-    --sampler_lengths 5 5 5 5 \
+    --sampler_lengths 3 1 1 1 \
     --update_query_pos \
     --merger_dropout 0 \
     --dropout 0 \

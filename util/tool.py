@@ -26,7 +26,6 @@ def load_model(model, model_path, optimizer=None, resume=False,
                 count += 1
                 # print (k, state_dict[k].shape, model_state_dict[k].shape)
     # print ("# differences ", count)
-    # import ipdb; ipdb.set_trace()
     # check loaded parameters and created model parameters
     msg = 'If you see this, your model does not fully load the ' + \
           'pre-trained weight. Please make sure ' + \
@@ -55,12 +54,14 @@ def load_model(model, model_path, optimizer=None, resume=False,
                 state_dict[k] = model_state_dict[k]
         else:
             print('Drop parameter {}.'.format(k) + msg)
+    # import ipdb; ipdb.set_trace()
     for k in model_state_dict:
         if not (k in state_dict):
             print('No param {}.'.format(k) + msg)
             state_dict[k] = model_state_dict[k]
     model.load_state_dict(state_dict, strict=False)
     
+    # import ipdb; ipdb.set_trace()
     for ii in range(10):
         print ()
     print ("-"*30)

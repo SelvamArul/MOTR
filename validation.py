@@ -79,14 +79,20 @@ def get_args_parser():
                         help="Type of positional embedding to use on top of the image features")
     parser.add_argument('--position_embedding_scale', default=2 * np.pi, type=float,
                         help="position / size * scale")
-    parser.add_argument('--num_feature_levels', default=4, type=int, help='number of feature levels')
+    parser.add_argument('--num_feature_levels', default=1, type=int, help='number of feature levels')
+    
+    # vanilla transformer args
+    parser.add_argument('--pre_norm', action='store_true')
+    parser.add_argument('--transformer', default='vanilla', type=str,
+            help="Name of the transformer to use")
+
 
     # * Transformer
     parser.add_argument('--enc_layers', default=6, type=int,
                         help="Number of encoding layers in the transformer")
     parser.add_argument('--dec_layers', default=6, type=int,
                         help="Number of decoding layers in the transformer")
-    parser.add_argument('--dim_feedforward', default=1024, type=int,
+    parser.add_argument('--dim_feedforward', default=1024*2, type=int,
                         help="Intermediate size of the feedforward layers in the transformer blocks")
     parser.add_argument('--hidden_dim', default=256, type=int,
                         help="Size of the embeddings (dimension of the transformer)")
@@ -94,7 +100,7 @@ def get_args_parser():
                         help="Dropout applied in the transformer")
     parser.add_argument('--nheads', default=8, type=int,
                         help="Number of attention heads inside the transformer's attentions")
-    parser.add_argument('--num_queries', default=300, type=int,
+    parser.add_argument('--num_queries', default=20, type=int,
                         help="Number of query slots")
     parser.add_argument('--dec_n_points', default=4, type=int)
     parser.add_argument('--enc_n_points', default=4, type=int)
@@ -242,9 +248,12 @@ def main(args):
     else:
         sampler_train = torch.utils.data.RandomSampler(dataset_train)
         sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+        __sampler_val = torch.utils.data.RandomSampler(dataset_val)
 
     batch_sampler_train = torch.utils.data.BatchSampler(
         sampler_train, args.batch_size, drop_last=True)
+    __batch_sampler_val = torch.utils.data.BatchSampler(
+        __sampler_val, args.batch_size, drop_last=True)
     if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
         collate_fn = utils.mot_collate_fn
     else:
@@ -255,10 +264,14 @@ def main(args):
     data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
                                    collate_fn=collate_fn, num_workers=args.num_workers,
                                        pin_memory=True)
-    data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
-                                 drop_last=False, collate_fn=collate_fn, num_workers=args.num_workers,
-                                 pin_memory=True)
+    # data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
+    #                              drop_last=False, collate_fn=collate_fn, num_workers=args.num_workers,
+    #                              pin_memory=True)
+    data_loader_val = DataLoader(dataset_val, batch_sampler=__batch_sampler_val,
+                                   collate_fn=collate_fn, num_workers=args.num_workers,
+                                       pin_memory=True)
 
+    
     def match_name_keywords(n, name_keywords):
         out = False
         for b in name_keywords:

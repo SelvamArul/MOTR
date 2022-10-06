@@ -16,10 +16,15 @@ def log(metric_log, writer):
             log_dict = json.loads(log_dict.strip())
             epoch = int(log_dict["epoch"]) // 2
             if epoch > CURRENT_EPOCH:
-                print (epoch, log_dict["train_loss"], log_dict["test_loss"])
-                for key in log_dict.keys():
-                    if 'loss' in key and 'aux' not in key:  
-                        writer.add_scalar('Loss/' + key, log_dict[key], epoch)
+                print (epoch, log_dict["train_loss"])
+
+                writer.add_scalars('Loss/train', {k:v for k, v in log_dict.items() if 'train' in k and 'aux' not in k}, epoch)
+                # writer.add_scalars('Loss/test', {k:v for k, v in log_dict.items() if 'test' in k and 'aux' not in k}, epoch)
+
+                # for key in log_dict.keys():
+                #     if 'loss' in key and 'aux' not in key:
+                #         _str = 'Train' if 'train' in key else 'Val'
+                #         writer.add_scalar('Loss/' + _str , log_dict[key], epoch)
                 CURRENT_EPOCH = epoch
     writer.flush()
 
