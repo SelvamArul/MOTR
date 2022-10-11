@@ -155,6 +155,7 @@ class YCBV:
 
     def _pre_single_frame(self, idx: int):
         # TODO
+        # print (
         img_path = self.img_files[idx]
         img = Image.open(img_path)
         targets = {}
@@ -207,6 +208,8 @@ class YCBV:
         targets['boxes'][:, 0::2].clamp_(min=0, max=w)
         targets['boxes'][:, 1::2].clamp_(min=0, max=h)
         # import ipdb; ipdb.set_trace()
+        # print ("--"*30)
+
         targets['obj_ids'] = torch.as_tensor(cls_ids, dtype=torch.int64) + obj_idx_offset
         targets['labels'] = torch.as_tensor(cls_ids, dtype=torch.int64)
         targets['area'] = (targets['boxes'][:, 2] * targets['boxes'][:,3])
@@ -240,7 +243,12 @@ class YCBV:
         return images, targets
 
     def __getitem__(self, idx):
+        print ('loading ', idx)
         sample_start, sample_end, sample_interval = self._get_sample_range(idx)
+        if sample_end >= len(self.img_files):
+            sample_end = len(self.img_files)            
+
+        print('sampling ', sample_start, sample_end, sample_interval)
         images, targets = self.pre_continuous_frames(sample_start, sample_end, sample_interval)
         data = {}
         if self._transforms is not None:
@@ -258,8 +266,8 @@ class YCBV:
         except Exception as e:
             print (e)
             import ipdb; ipdb.set_trace()
-        if self.args.vis:
-            data['ori_img'] = [target_i['ori_img'] for target_i in targets]
+        # if self.args.vis:
+        data['orig_img'] = [target_i['ori_img'] for target_i in targets]
         return data
 
     def __len__(self):

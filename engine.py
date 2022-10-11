@@ -28,7 +28,7 @@ from util.plot_utils import draw_boxes, draw_ref_pts, image_hwc2chw
 from datasets.coco_eval import CocoEvaluator
 from datasets.panoptic_eval import PanopticEvaluator
 from datasets.data_prefetcher import data_prefetcher, data_dict_to_cuda
-
+from object_info import obj_id_to_name
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
@@ -153,7 +153,7 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
                     max_norm: float = 0, profile: bool = False):
     if epoch == 0:
         wandb.login()
-        wandb.init(project="temporal_pose",
+        wandb.init(project='debug',  #"cuda12_temporal_pose",
                 name=exp_name,
                 config={"lr":optimizer.param_groups[0]["lr"]})
     
@@ -256,12 +256,13 @@ def eval_mot_bbox(model: torch.nn.Module,
                     data_loader: Iterable,
                     models_ds : Iterable,
                     device: torch.device,
-                    exp_name: str):
-    # wandb init
-    # import wandb
-    # wandb.login()
-    # wand.init(project="bbox_eval",
-    #         name=exp_name)
+                    exp_name: str,
+                    do_visualize = True):
+    if do_visualize:
+        import wandb
+        wandb.login()
+        wandb.init(project="bbox_viz",
+                name="bbox_viz")
     obj_id_dict = data_loader.dataset.obj_id_to_name
     pose_evaluator = PoseEvaluator(models_ds, obj_id_dict, exp_name)
     x_count = 1
@@ -276,7 +277,8 @@ def eval_mot_bbox(model: torch.nn.Module,
             # print ("Probs ", _pp[pred_idx].max(dim=-1))
             _ppi = outputs['pred_logits'][i][0].max(dim=-1, keepdim=True).indices
             _pm = _ppi != 22
-            print (torch.gather(_pp, -1, _ppi)[_pm])
+            import ipdb; ipdb.set_trace()
+            # print (torch.gather(_pp, -1, _ppi)[_pm])
             gt_idx = data_dict['gt_instances'][i].get_fields()['labels']
             pred_idx = pred_idx.sort().values
             gt_idx = gt_idx.sort().values
@@ -289,15 +291,15 @@ def eval_mot_bbox(model: torch.nn.Module,
             # import ipdb ; ipdb.set_trace()
             _cardinality_error += cardinality_error
 
-            if cardinality_error == 0:
-                rprint(x_count, gt_idx.tolist(), pred_idx.tolist(), f"[bold red] {cardinality_error} [/bold red]   :thumbsup:")
-                print ("Ok")
-                # pass
-            else:
-                rprint(x_count, gt_idx.tolist(), pred_idx.tolist(), f"[bold red] {cardinality_error} [/bold red]   :warning:")
-                rprint(missing_ids)
-            import ipdb; ipdb.set_trace()
-            print()
+            # if cardinality_error == 0:
+            #     rprint(x_count, gt_idx.tolist(), pred_idx.tolist(), f"[bold red] {cardinality_error} [/bold red]   :thumbsup:")
+            #     print ("Ok")
+            #     # pass
+            # else:
+            #     rprint(x_count, gt_idx.tolist(), pred_idx.tolist(), f"[bold red] {cardinality_error} [/bold red]   :warning:")
+            #     rprint(missing_ids)
+            # import ipdb; ipdb.set_trace()
+            # print()
         return _cardinality_error
     model.train() # TODO
     criterion.train()
@@ -311,10 +313,78 @@ def eval_mot_bbox(model: torch.nn.Module,
     # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
     # for data_dict in metric_logger.log_every(data_loader, print_freq, header):
     _card_error = 0
+    def predictions_to_wandb_dict(output, data_dict):
+        bs = len(outputs['pred_logits'])
+
+        for i in range(bs):
+            _pred_idx = outputs['pred_logits'][i][0].max(dim=-1).indices
+            _pl = outputs['pred_logits'][i][0]
+            pred_idx = _pred_idx[_pred_idx != 22]
+            _pp = torch.nn.functional.softmax(_pl, dim=-1)
+            # print ("Probs ", _pp[pred_idx].max(dim=-1))
+            _ppi = outputs['pred_logits'][i][0].max(dim=-1, keepdim=True).indices
+            _pm = _ppi != 22
+            # import ipdb; ipdb.set_trace()
+            pred_probs = torch.gather(_pp, -1, _ppi)[_pm]
+            pred_bboxes = outputs['pred_boxes'][i][0][_pm.squeeze()]
+            img = (data_dict['orig_img'][i].permute(1, 2, 0) * 255).cpu().int()
+            H, W = img.shape[0], img.shape[1] 
+            pred_dict = []
+            for idx in range(len(pred_idx)):
+                bbox = pred_bboxes[idx].cpu().tolist()
+                bbox[0::2] = map(lambda x: x * W, bbox[0::2])
+                bbox[1::2] = map(lambda x: x * H, bbox[1::2])
+                bbox = [int(x) for x in bbox]
+                pred_dict.append(
+                        {
+                            'position': {
+                                         'middle' : bbox[:2],
+                                         'width': bbox[2],
+                                         'height': bbox[3],
+                                        },
+                            'domain': 'pixel',
+                            'class_id' : pred_idx[idx].item(),
+                            'box_caption': obj_id_dict[pred_idx[idx].item()],
+                            'scores': {'acc': pred_probs[idx].item()}
+                        })
+            gt_cls_idxs = data_dict['gt_instances'][i].get_fields()['labels'].tolist()
+            gt_boxes = data_dict['gt_instances'][i].get_fields()['boxes']
+            gt_dict = []
+            for idx in range(len(data_dict['gt_instances'][i])):
+                cls_idx = gt_cls_idxs[idx]
+                bbox = gt_boxes[idx].cpu().tolist()
+                bbox[0::2] = map(lambda x: x * W, bbox[0::2])
+                bbox[1::2] = map(lambda x: x * H, bbox[1::2])
+                bbox = [int(x) for x in bbox]
+                gt_dict.append(
+                        {
+                            'position': {
+                                'middle' : bbox[:2],
+                                'width': bbox[2],
+                                'height': bbox[3],
+                                        },
+                            'domain': 'pixel',
+                            'class_id' : gt_cls_idxs[idx],
+                            'box_caption': obj_id_dict[cls_idx],
+                            })
+            break
+
+        pred_vis = wandb.Image(img.numpy(), boxes ={'predictions' : {"box_data": pred_dict, 'class_labels': obj_id_dict}})
+        gt_vis = wandb.Image(img.numpy(), boxes ={'predictions' : {"box_data": gt_dict, 'class_labels': obj_id_dict}})
+        wandb.log({"pred_viz": pred_vis})
+        wandb.log({"gt_viz": gt_vis})
+        import ipdb; ipdb.set_trace()
+        print ()
+
+
+            # img_vis = wandb.Image(img,
+            #         boxes = 
+
     for data_dict in data_loader:    
         data_dict = data_dict_to_cuda(data_dict, device)
         outputs = model(data_dict)
-
+        predictions_to_wandb_dict(outputs, data_dict)
+        # _card_error += compute_cardinality_error(outputs, data_dict, x_count)
         loss_dict = criterion(outputs, data_dict)
         pose_evaluator.update(outputs, data_dict['gt_instances'])
 
@@ -340,11 +410,17 @@ def eval_mot_bbox(model: torch.nn.Module,
 
         # metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
         # metric_logger.update(lr=optimizer.param_groups[0]["lr"])
-        _card_error += compute_cardinality_error(outputs, data_dict, x_count)
-        import ipdb; ipdb.set_trace()
-        x_count += 1
-    print ("Total error ", _card_error)
+        # import ipdb; ipdb.set_trace()
+        # x_count += 1
+    # print ("Total error ", _card_error)
+    # import ipdb; ipdb.set_trace()
+
+    if pose_evaluator is not None:
+        pose_evaluator.accumulate()
+        pose_evaluator.summarize()
     import ipdb; ipdb.set_trace()
+    print (pose_evaluator.stats)
+
     # metric_logger.synchronize_between_processes()
     # print("Averaged stats:", metric_logger)
     return #{k: meter.global_avg for k, meter in metric_logger.meters.items()}
@@ -497,19 +573,24 @@ def visualize_predictions_mot(model: torch.nn.Module, data_loader: Iterable, dev
         import ipdb; ipdb.set_trace()
         print ("vis  ")
 
-
 @torch.no_grad()
-def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir):
-    model.eval()
-    criterion.eval()
-    import ipdb; ipdb.set_trace()
+def evaluate(model, criterion, postprocessors, data_loader, base_ds, model_ds, device, cuda_filter, output_dir):
+    # model.eval()
+    # criterion.eval()
+
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Test:'
 
-    iou_types = tuple(k for k in ('segm', 'bbox') if k in postprocessors.keys())
-    coco_evaluator = CocoEvaluator(base_ds, iou_types)
-    # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
+    iou_types = OrderedDict({k: k for k in ('bbox', 'segm', 'keypoints') if k in postprocessors.keys()})
+    coco_evaluator = CocoEvaluator(base_ds, tuple(iou_types.keys()))
+    # coco_evaluator.coco_eval[iou_types['segm']].params.iouThrs = [0, 0.1, 0.5, 0.75]
+    if 'keypoints' in iou_types:
+        coco_evaluator.coco_eval[iou_types['keypoints']].params.kpt_oks_sigmas = np.ones(model_ds.num_keypoints) * .1
+
+    pose_evaluator = None
+    if 'pose' in postprocessors.keys():
+        pose_evaluator = PoseEvaluator(base_ds, model_ds, output_dir=os.path.join(output_dir, "pose_eval"))
 
     panoptic_evaluator = None
     if 'panoptic' in postprocessors.keys():
@@ -518,12 +599,12 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
             data_loader.dataset.ann_folder,
             output_dir=os.path.join(output_dir, "panoptic_eval"),
         )
-
-    for samples, targets in metric_logger.log_every(data_loader, 10, header):
+    iter = 0
+    for samples, targets in metric_logger.log_every(data_loader, 100, header):
         samples = samples.to(device)
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        targets = [{k: v.to(device) if k in cuda_filter else v for k, v in t.items()} for t in targets]
 
-        outputs = model(samples)
+        outputs = model(samples, targets)
         loss_dict = criterion(outputs, targets)
         weight_dict = criterion.weight_dict
 
@@ -531,24 +612,28 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         loss_dict_reduced = utils.reduce_dict(loss_dict)
         loss_dict_reduced_scaled = {k: v * weight_dict[k]
                                     for k, v in loss_dict_reduced.items() if k in weight_dict}
-        # loss_dict_reduced_unscaled = {f'{k}_unscaled': v
-        #                               for k, v in loss_dict_reduced.items()}
-        # metric_logger.update(loss=sum(loss_dict_reduced_scaled.values()),
-        #                      **loss_dict_reduced_scaled,
-        #                      **loss_dict_reduced_unscaled)
+        loss_dict_reduced_unscaled = {f'{k}_unscaled': v
+                                      for k, v in loss_dict_reduced.items()}
         metric_logger.update(loss=sum(loss_dict_reduced_scaled.values()),
                              **loss_dict_reduced_scaled,
-                             )
-        metric_logger.update(class_error=loss_dict_reduced['class_error'])
+                             **loss_dict_reduced_unscaled)
+        if 'class_error' in loss_dict_reduced:
+            metric_logger.update(class_error=loss_dict_reduced['class_error'])
 
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         results = postprocessors['bbox'](outputs, orig_target_sizes)
+        if 'pose' in postprocessors.keys():
+            target_intrinsics = torch.stack([t["intrinsic"] for t in targets], dim=0)
+            results = postprocessors['pose'](results, outputs, orig_target_sizes, target_intrinsics)
         if 'segm' in postprocessors.keys():
             target_sizes = torch.stack([t["size"] for t in targets], dim=0)
             results = postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
         res = {target['image_id'].item(): output for target, output in zip(targets, results)}
         if coco_evaluator is not None:
             coco_evaluator.update(res)
+
+        if pose_evaluator is not None:
+            pose_evaluator.update(res)
 
         if panoptic_evaluator is not None:
             res_pano = postprocessors["panoptic"](outputs, target_sizes, orig_target_sizes)
@@ -559,12 +644,17 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
                 res_pano[i]["file_name"] = file_name
 
             panoptic_evaluator.update(res_pano)
+        # if iter == 2:
+        #     break
+        # iter += 1
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     if coco_evaluator is not None:
         coco_evaluator.synchronize_between_processes()
+    # if pose_evaluator is not None:
+    #     pose_evaluator.synchronize_between_processes()
     if panoptic_evaluator is not None:
         panoptic_evaluator.synchronize_between_processes()
 
@@ -572,17 +662,26 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
     if coco_evaluator is not None:
         coco_evaluator.accumulate()
         coco_evaluator.summarize()
+        coco_evaluator.summarize_per_category()
+    if pose_evaluator is not None:
+        pose_evaluator.accumulate()
+        pose_evaluator.summarize()
+
     panoptic_res = None
     if panoptic_evaluator is not None:
         panoptic_res = panoptic_evaluator.summarize()
-    stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    stats = {k: meter.global_avg for k, meter in metric_logger.meters.items() if meter.count > 0}
     if coco_evaluator is not None:
         if 'bbox' in postprocessors.keys():
             stats['coco_eval_bbox'] = coco_evaluator.coco_eval['bbox'].stats.tolist()
         if 'segm' in postprocessors.keys():
             stats['coco_eval_masks'] = coco_evaluator.coco_eval['segm'].stats.tolist()
+        if 'keypoints' in postprocessors.keys():
+            stats['coco_eval_keypoints'] = coco_evaluator.coco_eval['keypoints'].stats.tolist()
+    if pose_evaluator is not None:
+        stats['pose_eval'] = pose_evaluator.stats
     if panoptic_res is not None:
         stats['PQ_all'] = panoptic_res["All"]
         stats['PQ_th'] = panoptic_res["Things"]
         stats['PQ_st'] = panoptic_res["Stuff"]
-    return stats, coco_evaluator
+    return stats, coco_evaluator 

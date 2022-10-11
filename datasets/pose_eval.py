@@ -177,7 +177,8 @@ class PoseEvaluator(object):
         pass
 
     def accumulate(self):
-        metrics = ["AUC ADD@0.1d", "AUC ADDS@0.1d", "AUC TE@0.1d", "AUC ADD@0.1", "AUC ADDS@0.1", "AUC TE@0.1", "AR ADD@0.1d", "AR ADDS@0.1d", "AR TE@0.05d", "AR PROJ@5", "HIST RE", "AR RE@5"]  # "MEAN XYZ"
+        metrics = ["AUC ADD@0.1d", "AUC ADDS@0.1d", "AUC TE@0.1d", "AUC ADD@0.1", "AUC ADDS@0.1", "AUC TE@0.1", "AR ADD@0.1d", "AR ADDS@0.1d", "AR TE@0.05d"]
+        # [ "AR PROJ@5", "HIST RE", "AR RE@5"]  # "MEAN XYZ"
         errors_accumulated = {}
         for image_errors in self.errors.values():
             for name, errors in image_errors.items():
@@ -192,6 +193,7 @@ class PoseEvaluator(object):
         self.metrics_per_class = OrderedDict()
         # self.plots_per_class = OrderedDict()
         errors_accumulated['class'] = np.int64(errors_accumulated['class'])
+        # import ipdb; ipdb.set_trace()
         for metric in metrics:
             mtrc, err = metric.split(' ')
             err = err.lower()

@@ -204,3 +204,10 @@ If you find MOTR useful in your research, please consider citing:
   year={2021}
 }
 ```
+
+
+
+
+
+### building external module
+python setup.py build_ext --inplace

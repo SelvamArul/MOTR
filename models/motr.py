@@ -644,7 +644,7 @@ class MOTR(nn.Module):
         import ipdb; ipdb.set_trace()
         '''
         with Timer('transformer'):
-            #                                                                          def forward(self, srcs, masks, pos_embeds, query_embed=None, ref_pts=None):
+            # def forward(self, srcs, masks, pos_embeds, query_embed=None, ref_pts=None):
             # hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, track_instances.query_pos, ref_pts=track_instances.ref_pts)
         
             hs, memory = self.transformer(self.input_proj(src), mask, pos[-1], track_instances.query_pos) 
