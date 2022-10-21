@@ -581,7 +581,10 @@ class MOTR(nn.Module):
         track_instances.track_scores = torch.zeros((len(track_instances),), dtype=torch.float, device=device)
         track_instances.pred_boxes = torch.zeros((len(track_instances), 4), dtype=torch.float, device=device)
         track_instances.pred_logits = torch.zeros((len(track_instances), self.num_classes), dtype=torch.float, device=device)
-
+        
+        if self.enable_pose:
+            track_instances.pred_translations = torch.zeros((len(track_instances), 3), dtype=torch.float, device=device)
+            track_instances.pred_rotations = torch.zeros((len(track_instances), 6), dtype=torch.float, device=device)
         mem_bank_len = self.mem_bank_len
         track_instances.mem_bank = torch.zeros((len(track_instances), mem_bank_len, dim // 2), dtype=torch.float32, device=device)
         track_instances.mem_padding_mask = torch.ones((len(track_instances), mem_bank_len), dtype=torch.bool, device=device)
