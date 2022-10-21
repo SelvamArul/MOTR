@@ -176,6 +176,11 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
         loss_dict = criterion(outputs, data_dict)
         # print("iter {} after model".format(cnt-1))
         weight_dict = criterion.weight_dict
+        _loss_dict = {k:v.item() for (k, v) in loss_dict.items() }
+        _losses = [_loss_dict[k] * weight_dict[k] for k in _loss_dict.keys() if k in weight_dict]
+        _lll = {k:_loss_dict[k] * weight_dict[k] for k in _loss_dict.keys() if k in weight_dict}
+        import ipdb; ipdb.set_trace()
+        
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
         # reduce losses over all GPUs for logging purposes
@@ -251,17 +256,18 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
 from rich import print as rprint
 from collections import Counter
 from datasets.pose_eval import PoseEvaluator
+@torch.no_grad()
 def eval_mot_bbox(model: torch.nn.Module,
                     criterion: torch.nn.Module,
                     data_loader: Iterable,
                     models_ds : Iterable,
                     device: torch.device,
                     exp_name: str,
-                    do_visualize = True):
+                    do_visualize = False):
     if do_visualize:
         import wandb
         wandb.login()
-        wandb.init(project="bbox_viz",
+        wandb.init(project="int_debug",
                 name="bbox_viz")
     obj_id_dict = data_loader.dataset.obj_id_to_name
     pose_evaluator = PoseEvaluator(models_ds, obj_id_dict, exp_name)
@@ -313,10 +319,12 @@ def eval_mot_bbox(model: torch.nn.Module,
     # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
     # for data_dict in metric_logger.log_every(data_loader, print_freq, header):
     _card_error = 0
+    @torch.no_grad()
     def predictions_to_wandb_dict(output, data_dict):
         bs = len(outputs['pred_logits'])
 
         for i in range(bs):
+            # import ipdb; ipdb.set_trace()
             _pred_idx = outputs['pred_logits'][i][0].max(dim=-1).indices
             _pl = outputs['pred_logits'][i][0]
             pred_idx = _pred_idx[_pred_idx != 22]
@@ -367,14 +375,11 @@ def eval_mot_bbox(model: torch.nn.Module,
                             'class_id' : gt_cls_idxs[idx],
                             'box_caption': obj_id_dict[cls_idx],
                             })
-            break
-
-        pred_vis = wandb.Image(img.numpy(), boxes ={'predictions' : {"box_data": pred_dict, 'class_labels': obj_id_dict}})
-        gt_vis = wandb.Image(img.numpy(), boxes ={'predictions' : {"box_data": gt_dict, 'class_labels': obj_id_dict}})
-        wandb.log({"pred_viz": pred_vis})
-        wandb.log({"gt_viz": gt_vis})
-        import ipdb; ipdb.set_trace()
-        print ()
+            # break
+            pred_vis = wandb.Image(img.numpy(), boxes ={'predictions' : {"box_data": pred_dict, 'class_labels': obj_id_dict}})
+            gt_vis = wandb.Image(img.numpy(), boxes ={'predictions' : {"box_data": gt_dict, 'class_labels': obj_id_dict}})
+            wandb.log({"pred_viz": pred_vis})
+            wandb.log({"gt_viz": gt_vis})
 
 
             # img_vis = wandb.Image(img,
@@ -383,7 +388,8 @@ def eval_mot_bbox(model: torch.nn.Module,
     for data_dict in data_loader:    
         data_dict = data_dict_to_cuda(data_dict, device)
         outputs = model(data_dict)
-        predictions_to_wandb_dict(outputs, data_dict)
+        if do_visualize:
+            predictions_to_wandb_dict(outputs, data_dict)
         # _card_error += compute_cardinality_error(outputs, data_dict, x_count)
         loss_dict = criterion(outputs, data_dict)
         pose_evaluator.update(outputs, data_dict['gt_instances'])
