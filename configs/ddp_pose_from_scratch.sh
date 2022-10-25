@@ -20,7 +20,7 @@ then
 fi
 
 
-alias xpython="singularity run -B /home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET,/home/nfs/inf6/data/datasets/ycbv_coco --nv /home/cache/containers/motr_image.sif python"
+alias xpython="singularity run -B /home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET,/home/nfs/inf6/data/datasets/ycbv_coco,$HOME/.local/bin --env PATH=$HOME/.local/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --nv /home/cache/containers/motr_image.sif python"
 EXP_DIR=exps/ddp_pose_from_scratch
 xpython -m torch.distributed.launch --nproc_per_node=${#gpus} \
     --use_env main.py \
@@ -29,7 +29,7 @@ xpython -m torch.distributed.launch --nproc_per_node=${#gpus} \
     --dataset_path '/home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/'\
     --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_train.txt'\
     --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_val.txt'\
-    --resume '/home/user/periyasa/workspace/MOTR/exps/ddp_pose_from_scratch_24-Apr-2022_08:58/checkpoint.pth'\
+    --resume '/home/user/periyasa/workspace/MOTR/exps/ddp_pose_from_scratch_19-May-2022_17:44/checkpoint.pth'\
     --epoch 100 \
     --num_workers 4 \
     --with_box_refine \

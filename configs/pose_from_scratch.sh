@@ -8,15 +8,15 @@ shopt -s expand_aliases
 
 # for MOT17
 alias xpython="singularity run -B /home/nfs/inf6/data/models,/home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET,/home/nfs/inf6/data/datasets/ycbv_coco,$HOME/.local/bin --env PATH=$HOME/.local/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --nv /home/nfs/inf6/data/singularity_images/motr_image.sif python"
-EXP_DIR=exps/vanilla_detr_pose
+EXP_DIR=exps/vanilla_detr_motr_meter_pose_coeff_0.5
 xpython main.py \
     --meta_arch motr \
     --dataset_file ycbv\
     --dataset_path '/home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/'\
     --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_train.txt'\
     --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_val.txt'\
-    --pretrained '/home/user/periyasa/workspace/MOTR/exps/vanilla_detr_pose_31-Aug-2022_09:40/checkpoint.pth'\
-    --resume '/home/user/periyasa/workspace/MOTR/exps/vanilla_detr_pose_31-Aug-2022_09:40/checkpoint.pth'\
+    --pretrained '/home/nfs/inf6/data/models/motr_models/vanilla_motr_pose_coeff_0.01.pth'\
+    --resume '/home/nfs/inf6/data/models/motr_models/vanilla_motr_pose_coeff_0.01.pth'\
     --epoch 100 \
     --num_workers 4 \
     --lr_drop 100 \
@@ -39,4 +39,5 @@ xpython main.py \
     --data_txt_path_val ./datasets/data_path/mot17.train \
     --mot_path '/home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET/' \
     --enable_pose \
+    --pose_loss_coef 0.5\
     --sym_classes 13 16 19 20 21
