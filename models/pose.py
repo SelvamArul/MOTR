@@ -356,7 +356,7 @@ class PostProcessPose(nn.Module):
             out_translations = outputs['pred_translations'].cpu()
             assert len(out_translations) == len(target_sizes)
 
-            translations = out_translations.flatten(0, 1) * 1000  # mm
+            translations = out_translations.flatten(0, 1) #  * 1000  # mm 
             if "cxcy" in self.translation_type:
                 intrinsics = target_intrinsics.cpu()
                 translations = trans_from_centroid(translations[:, :2], translations[:, 2], intrinsics.repeat(out_translations.size(1), 1, 1))

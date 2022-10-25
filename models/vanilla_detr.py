@@ -305,7 +305,7 @@ class DETR(nn.Module):
 
             loss_pose = []
             if 'pred_translations' in outputs:
-                src_translations = outputs['pred_translations'][idx] * 1000  # meter to mm
+                src_translations = outputs['pred_translations'][idx] # * 1000  # meter to mm
                 if "cxcy" in self.trans_type:
                     intrinsics = torch.cat([t['intrinsic'].expand(len(t['labels']), 3, 3) for t in targets])
                     src_translations = trans_from_centroid(src_translations[:, :2], src_translations[:, 2], intrinsics)

@@ -171,7 +171,7 @@ class ClipMatcher(SetCriterion):
         src_rotations = src_identity - src_rotations
 
 
-        src_translations = outputs['pred_translations'][idx] * 1000
+        src_translations = outputs['pred_translations'][idx] #  * 1000
         target_translations = torch.cat([t.translations[i] for t, (_, i) in zip(targets, indices)], dim=0).type(src_translations.dtype)
         points = self.model_points[target_classes - 1]
         src_transformations = rotate(points, pose_ops.rot6d2mat(src_rotations)) + src_translations.unsqueeze(1)
