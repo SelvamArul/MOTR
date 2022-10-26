@@ -34,7 +34,7 @@ from .qim import build as build_query_interaction_layer
 from .memory_bank import build_memory_bank
 from .deformable_detr import SetCriterion
 from .segmentation import sigmoid_focal_loss
-from .pose import axangle_rotate, rotate, PostProcessPose
+from .pose import axangle_rotate, rotate, PostProcessPose, cross_ratio
 
 from util import mesh_tools
 from handy_profiler import Timer
@@ -173,13 +173,13 @@ class ClipMatcher(SetCriterion):
     def loss_keypoints(self, outputs, targets, indices, num_boxes):
         assert 'pred_keypoints' in outputs
         idx = self._get_src_permutation_idx(indices)
+        # import ipdb; ipdb.set_trace()
 
         src_keypoints = outputs['pred_keypoints'][idx]
-        target_keypoints = torch.cat([t['keypoints'][i] for t, (_, i) in zip(targets, indices)])
+        target_keypoints = torch.cat([t.keypoints[i] for t, (_, i) in zip(targets, indices)])
 
         mask = torch.any((target_keypoints < 0) | (target_keypoints > 1), dim=2).unsqueeze(2)
-        loss_keypoint = F.l1_loss(src_keypoints, target_keypoints[:, :-1], reduction='none') * mask[:, :-1]
-
+        loss_keypoint = F.l1_loss(src_keypoints, target_keypoints, reduction='none') * mask
         cr_sqr, cr_mask = cross_ratio(src_keypoints, 0.1)
         cr_sqr = cr_sqr / (4 / 3) ** 2
         cr_loss = F.smooth_l1_loss(cr_sqr, torch.ones_like(cr_sqr.detach()), reduction='none') * cr_mask
@@ -282,7 +282,7 @@ class ClipMatcher(SetCriterion):
         if self.enable_pose:
             pred_rotations_i = track_instances.pred_rotations
             pred_translations_i = track_instances.pred_translations
-            pred_kepoints_i = track_instances.pred_keypoints
+            pred_keypoints_i = track_instances.pred_keypoints
 
         obj_idxes = gt_instances_i.obj_ids
         obj_idxes_list = obj_idxes.detach().cpu().numpy().tolist()
@@ -293,7 +293,7 @@ class ClipMatcher(SetCriterion):
                 'pred_boxes': pred_boxes_i.unsqueeze(0),
                 'pred_translations': pred_translations_i.unsqueeze(0),
                 'pred_rotations': pred_rotations_i.unsqueeze(0),
-                'pred_keypoints': pred_boxes_i.unsqueeze(0)
+                'pred_keypoints': pred_keypoints_i.unsqueeze(0)
             }
         else:
             outputs_i = {
@@ -916,6 +916,7 @@ def build(args):
         sym_classes = args.sym_classes
         model_pts = mesh_tools.read_models_points()
         losses.append('poses')
+        losses.append('keypoints')
     criterion = ClipMatcher(num_classes, matcher=img_matcher, 
                     weight_dict=weight_dict, losses=losses,
                     sym_classes=sym_classes,
