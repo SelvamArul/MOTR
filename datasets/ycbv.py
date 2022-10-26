@@ -283,12 +283,12 @@ class YCBV:
         return images, targets
 
     def __getitem__(self, idx):
-        print ('loading ', idx)
+        # print ('loading ', idx)
         sample_start, sample_end, sample_interval = self._get_sample_range(idx)
         if sample_end >= len(self.img_files):
             sample_end = len(self.img_files)            
 
-        print('sampling ', sample_start, sample_end, sample_interval)
+        # print('sampling ', sample_start, sample_end, sample_interval)
         images, targets = self.pre_continuous_frames(sample_start, sample_end, sample_interval)
         data = {}
         if self._transforms is not None:
