@@ -354,7 +354,7 @@ class ClipMatcher(SetCriterion):
                 'pred_boxes': track_instances.pred_boxes[unmatched_track_idxes].unsqueeze(0),
                 'pred_translations': track_instances.pred_translations[unmatched_track_idxes].unsqueeze(0),
                 'pred_rotations': track_instances.pred_rotations[unmatched_track_idxes].unsqueeze(0),
-                'pred_keypoints': track_instances.pred_keypoints[unmatched_track_idxes].unused(0),
+                'pred_keypoints': track_instances.pred_keypoints[unmatched_track_idxes].unsqueeze(0),
             }
         else:
             unmatched_outputs = {
@@ -731,7 +731,7 @@ class MOTR(nn.Module):
                     outputs_keypoints.append(outputs_keypoint)
                     
                     # rotation from predicted keypoints
-                    outputs_rot = self.rot_embed(outputs_keypoint)
+                    outputs_rot = self.rot_embed(outputs_keypoint.flatten(start_dim=-2, end_dim=-1))
                     outputs_rots.append(outputs_rot)
                     
                     # translation from output embeding
@@ -888,7 +888,8 @@ def build(args):
                             })
         if args.enable_pose:
             weight_dict['frame_{}_loss_pose'.format(i)] = args.pose_loss_coef
-
+            weight_dict['frame_{}_loss_keypoint'.format(i)] = args.keypoint_loss_coef
+            weight_dict['frame_{}_loss_cr'.format(i)] = args.cr_loss_coef
     # TODO this is a hack
     if args.aux_loss:
         for i in range(num_frames_per_batch):
@@ -899,6 +900,8 @@ def build(args):
                                     })
             if args.enable_pose:
                 weight_dict['frame_{}_aux{}_loss_pose'.format(i, j)] =  args.pose_loss_coef
+                weight_dict['frame_{}_aux{}_loss_keypoint'.format(i, j)] = args.keypoint_loss_coef
+                weight_dict['frame_{}_aux{}_loss_cr'.format(i, j)] = args.cr_loss_coef
     
     if args.memory_bank_type is not None and len(args.memory_bank_type) > 0:
         memory_bank = build_memory_bank(args, d_model, hidden_dim, d_model * 2)

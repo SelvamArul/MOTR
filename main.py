@@ -198,7 +198,8 @@ def get_args_parser():
     parser.add_argument('--sym_classes', default=[], nargs='+', type=int,
                                     help='Symmetric classes')  # [13, 16, 19, 20, 21]
     parser.add_argument('--pose_loss_coef', default=0.01, type=float)
-    
+    parser.add_argument('--keypoint_loss_coef', default=1, type=float)
+    parser.add_argument('--cr_loss_coef', default=5, type=float)
     parser.add_argument('--profile', action='store_true')
     
     return parser
