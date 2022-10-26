@@ -40,6 +40,14 @@ from models.structures import Instances
 from pathlib import Path
 import argparse
 from scipy.io import loadmat
+from util.pose_ops import points_to_2d
+
+
+# YCBV image dimensions
+W = 640
+H = 480
+
+
 
 class YCBV:
     def __init__(self, args, transforms=None):
@@ -112,6 +120,17 @@ class YCBV:
                 20:"052_extra_large_clamp",
                 21:"061_foam_brick"
                 }
+        
+        # load keypoints
+        keypoints_file = _dataset_path.parent / 'box_points_new_mm.pkl'
+        if not keypoints_file.exists():
+            import sys
+            sys.exit("IBB keypoints file named 'box_points_new_mm.pkl' not found")
+        self.ibb_keypoints = np.load(keypoints_file, allow_pickle=True)
+        
+        # mm to m conversion
+        for k, v in self.ibb_keypoints.items():
+            self.ibb_keypoints[k] = v / 1000.
 
     def set_epoch(self, epoch):
         self.current_epoch = epoch
@@ -141,6 +160,7 @@ class YCBV:
         gt_instances.translations = targets['translations']
         gt_instances.rotations = targets['rotations']
         gt_instances.image_id = targets['image_id']
+        gt_instances.keypoints = targets['keypoints']
         return gt_instances
 
     @staticmethod
@@ -204,6 +224,24 @@ class YCBV:
             print (e)
             import ipdb; ipdb.set_trace()
             print ()
+        
+        # keypoints
+        # self.ibb_keypoints is a numpy array
+        K = labels['intrinsic_matrix']
+        img_size = np.array([W, H])
+        ibb_in_2d = []
+        try:
+            for _i, cls_id in enumerate(cls_ids):
+                R = targets['poses'][_i][..., :3].numpy()
+                t = targets['poses'][_i][..., 3].numpy()
+                kpts, z = points_to_2d(self.ibb_keypoints[str(cls_id)], R, t, K)
+                kpts = kpts[:-1] # remove BBox origin
+                ibb_in_2d.append(kpts)
+        except Exception as e:
+            print (e)
+            import ipdb; ipdb.set_trace()
+            print ()
+
         targets['boxes'] = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4)
         targets['boxes'][:, 0::2].clamp_(min=0, max=w)
         targets['boxes'][:, 1::2].clamp_(min=0, max=h)
@@ -216,6 +254,8 @@ class YCBV:
         targets['iscrowd'] = torch.zeros_like(targets['labels'])
         
         targets['image_id'] = torch.full_like(targets['labels'], idx, dtype=torch.int64)
+        targets['keypoints'] = torch.as_tensor(np.array(ibb_in_2d), dtype=torch.float32)
+        # import ipdb; ipdb.set_trace()
         # targets['image_id'] = [idx] * len(targets['labels'])
         # import ipdb; ipdb.set_trace()
         # print()
