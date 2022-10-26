@@ -32,12 +32,29 @@ from .deformable_transformer_plus import build_deforamble_transformer
 from .vanilla_transformer import build_transformer
 from .qim import build as build_query_interaction_layer
 from .memory_bank import build_memory_bank
-from .deformable_detr import SetCriterion, MLP
+from .deformable_detr import SetCriterion
 from .segmentation import sigmoid_focal_loss
 from .pose import axangle_rotate, rotate, PostProcessPose
 
 from util import mesh_tools
 from handy_profiler import Timer
+
+class MLP(nn.Module):
+    """ Very simple multi-layer perceptron (also called FFN)"""
+
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, dropout=0.0):
+        super().__init__()
+        self.num_layers = num_layers
+        self.dropout = dropout
+        h = [hidden_dim] * (num_layers - 1)
+        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+
+    def forward(self, x):
+        for i, layer in enumerate(self.layers):
+            x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
+            x = F.dropout(x, self.dropout, self.training) if i < self.num_layers - 1 and self.dropout > 0 else x
+        return x
+
 class ClipMatcher(SetCriterion):
     def __init__(self, num_classes,
                         matcher,
@@ -117,6 +134,7 @@ class ClipMatcher(SetCriterion):
             'cardinality': self.loss_cardinality,
             'boxes': self.loss_boxes,
             'poses': self.loss_poses,
+            'keypoints':self.loss_keypoints,
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](outputs, gt_instances, indices, num_boxes, **kwargs)
@@ -150,6 +168,25 @@ class ClipMatcher(SetCriterion):
         losses['loss_bbox'] = loss_bbox.sum() / num_boxes
         losses['loss_giou'] = loss_giou.sum() / num_boxes
 
+        return losses
+
+    def loss_keypoints(self, outputs, targets, indices, num_boxes):
+        assert 'pred_keypoints' in outputs
+        idx = self._get_src_permutation_idx(indices)
+
+        src_keypoints = outputs['pred_keypoints'][idx]
+        target_keypoints = torch.cat([t['keypoints'][i] for t, (_, i) in zip(targets, indices)])
+
+        mask = torch.any((target_keypoints < 0) | (target_keypoints > 1), dim=2).unsqueeze(2)
+        loss_keypoint = F.l1_loss(src_keypoints, target_keypoints[:, :-1], reduction='none') * mask[:, :-1]
+
+        cr_sqr, cr_mask = cross_ratio(src_keypoints, 0.1)
+        cr_sqr = cr_sqr / (4 / 3) ** 2
+        cr_loss = F.smooth_l1_loss(cr_sqr, torch.ones_like(cr_sqr.detach()), reduction='none') * cr_mask
+        losses = {
+            'loss_keypoint': loss_keypoint.sum() / num_boxes,  # loss_keypoint.mean()
+            'loss_cr': cr_loss.sum() / num_boxes  # cr_loss.sum() / cr_mask.sum()
+        }
         return losses
 
     def loss_poses(self, outputs, targets, indices, num_boxes):
@@ -245,7 +282,7 @@ class ClipMatcher(SetCriterion):
         if self.enable_pose:
             pred_rotations_i = track_instances.pred_rotations
             pred_translations_i = track_instances.pred_translations
-
+            pred_kepoints_i = track_instances.pred_keypoints
 
         obj_idxes = gt_instances_i.obj_ids
         obj_idxes_list = obj_idxes.detach().cpu().numpy().tolist()
@@ -255,7 +292,8 @@ class ClipMatcher(SetCriterion):
                 'pred_logits': pred_logits_i.unsqueeze(0),
                 'pred_boxes': pred_boxes_i.unsqueeze(0),
                 'pred_translations': pred_translations_i.unsqueeze(0),
-                'pred_rotations': pred_rotations_i.unsqueeze(0)
+                'pred_rotations': pred_rotations_i.unsqueeze(0),
+                'pred_keypoints': pred_boxes_i.unsqueeze(0)
             }
         else:
             outputs_i = {
@@ -316,6 +354,7 @@ class ClipMatcher(SetCriterion):
                 'pred_boxes': track_instances.pred_boxes[unmatched_track_idxes].unsqueeze(0),
                 'pred_translations': track_instances.pred_translations[unmatched_track_idxes].unsqueeze(0),
                 'pred_rotations': track_instances.pred_rotations[unmatched_track_idxes].unsqueeze(0),
+                'pred_keypoints': track_instances.pred_keypoints[unmatched_track_idxes].unused(0),
             }
         else:
             unmatched_outputs = {
@@ -361,6 +400,7 @@ class ClipMatcher(SetCriterion):
                     'pred_boxes': aux_outputs['pred_boxes'][0, unmatched_track_idxes].unsqueeze(0),
                     'pred_translations': aux_outputs['pred_translations'][0, unmatched_track_idxes].unsqueeze(0),
                     'pred_rotations': aux_outputs['pred_rotations'][0, unmatched_track_idxes].unsqueeze(0),
+                    'pred_keypoints': aux_outputs['pred_keypoints'][0, unmatched_track_idxes].unsqueeze(0),
                     }
                 else:
                     unmatched_outputs_layer = {
@@ -460,6 +500,7 @@ def _get_clones(module, N):
 
 class MOTR(nn.Module):
     def __init__(self, backbone, transformer, num_classes, num_queries, num_feature_levels, criterion, track_embed,
+                num_keypoints=32, num_rot_params=6,
                  aux_loss=True, with_box_refine=False, two_stage=False, memory_bank=None, enable_pose=False):
         """ Initializes the model.
         Parameters:
@@ -481,9 +522,13 @@ class MOTR(nn.Module):
         self.class_embed = nn.Linear(hidden_dim, num_classes)
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.enable_pose = enable_pose
+        self.num_rot_params = num_rot_params
+        self.num_keypoints = num_keypoints
         if self.enable_pose:
-            self.rot_embed = MLP(hidden_dim, hidden_dim, 6, 3) # 6D rotation parameterization
-            self.trans_embed = MLP(hidden_dim, hidden_dim, 3, 3) 
+            self.keypoint_embed_x = MLP(hidden_dim, 1024, self.num_keypoints, 3)
+            self.keypoint_embed_y = MLP(hidden_dim, 1024, self.num_keypoints, 3)
+            self.rot_embed = MLP(2 * self.num_keypoints, 1024, self.num_rot_params, 6, 0.5) # 6D rotation parameterization
+            self.trans_embed = MLP(hidden_dim, hidden_dim, 3, 3)
         self.num_feature_levels = num_feature_levels
         if not two_stage:
             self.query_embed = nn.Embedding(num_queries, hidden_dim) # Vanilla DETR compatibility
@@ -527,6 +572,10 @@ class MOTR(nn.Module):
             nn.init.constant_(self.trans_embed.layers[-1].weight.data, 0)
             nn.init.constant_(self.rot_embed.layers[-1].bias.data, 0)
             nn.init.constant_(self.trans_embed.layers[-1].bias.data, 0)
+            nn.init.constant_(self.keypoint_embed_x.layers[-1].bias.data, 0)
+            nn.init.constant_(self.keypoint_embed_x.layers[-1].bias.data, 0)
+            nn.init.constant_(self.keypoint_embed_y.layers[-1].bias.data, 0)
+            nn.init.constant_(self.keypoint_embed_y.layers[-1].bias.data, 0)
         # for proj in self.input_proj:
         #     nn.init.xavier_uniform_(proj[0].weight, gain=1)
         #     nn.init.constant_(proj[0].bias, 0)
@@ -581,10 +630,10 @@ class MOTR(nn.Module):
         track_instances.track_scores = torch.zeros((len(track_instances),), dtype=torch.float, device=device)
         track_instances.pred_boxes = torch.zeros((len(track_instances), 4), dtype=torch.float, device=device)
         track_instances.pred_logits = torch.zeros((len(track_instances), self.num_classes), dtype=torch.float, device=device)
-        
         if self.enable_pose:
             track_instances.pred_translations = torch.zeros((len(track_instances), 3), dtype=torch.float, device=device)
             track_instances.pred_rotations = torch.zeros((len(track_instances), 6), dtype=torch.float, device=device)
+            track_instances.pred_keypoints = torch.zeros((len(track_instances), self.num_keypoints, 2), dtype=torch.float, device=device)   
         mem_bank_len = self.mem_bank_len
         track_instances.mem_bank = torch.zeros((len(track_instances), mem_bank_len, dim // 2), dtype=torch.float32, device=device)
         track_instances.mem_padding_mask = torch.ones((len(track_instances), mem_bank_len), dtype=torch.bool, device=device)
@@ -596,14 +645,15 @@ class MOTR(nn.Module):
         self.track_base.clear()
 
     @torch.jit.unused
-    def _set_aux_pose_loss(self, outputs_class, outputs_coord, outputs_rot, outputs_tran):
+    def _set_aux_pose_loss(self, outputs_class, outputs_coord, outputs_rot, outputs_tran, outputs_keypoint):
         # this is a workaround to make torchscript happy, as torchscript
         # doesn't support dictionary with non-homogeneous values, such
         # as a dict having both a Tensor and a list.
-        return [{'pred_logits': a, 'pred_boxes': b, 'pred_rotations':c, 'pred_translations': d}
-                for a, b, c, d in zip(outputs_class[:-1], 
+        return [{'pred_logits': a, 'pred_boxes': b, 'pred_rotations':c, 'pred_translations': d, 'pred_keypoints':e}
+                for a, b, c, d, e in zip(outputs_class[:-1], 
                                  outputs_coord[:-1], 
-                                 outputs_rot[:-1], outputs_tran[:-1])]
+                                 outputs_rot[:-1], outputs_tran[:-1],
+                                 outputs_keypoint[:-1])]
     
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_coord):
@@ -656,6 +706,7 @@ class MOTR(nn.Module):
         outputs_coords = []
         outputs_rots = []
         outputs_trans = []
+        outputs_keypoints = []
         with Timer('FFN'):
             for lvl in range(hs.shape[0]):
                 # if lvl == 0:
@@ -676,8 +727,14 @@ class MOTR(nn.Module):
 
                 # pose FFN
                 if self.enable_pose:
-                    outputs_rot = self.rot_embed(hs[lvl])
+                    outputs_keypoint = torch.stack([self.keypoint_embed_x(hs[lvl]), self.keypoint_embed_y(hs[lvl])], dim=-1)
+                    outputs_keypoints.append(outputs_keypoint)
+                    
+                    # rotation from predicted keypoints
+                    outputs_rot = self.rot_embed(outputs_keypoint)
                     outputs_rots.append(outputs_rot)
+                    
+                    # translation from output embeding
                     outputs_tran = self.trans_embed(hs[lvl])
                     outputs_trans.append(outputs_tran)
 
@@ -687,18 +744,19 @@ class MOTR(nn.Module):
             if self.enable_pose:
                 outputs_rot = torch.stack(outputs_rots)
                 outputs_tran = torch.stack(outputs_trans)
-
+                outputs_keypoint = torch.stack(outputs_keypoints)
         # ref_pts_all = torch.cat([init_reference[None], inter_references[:, :, :, :2]], dim=0)
         
 
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1], 'ref_pts': None}
         if self.enable_pose:
+            out['pred_keypoints'] = outputs_keypoint[-1]
             out['pred_translations'] = outputs_tran[-1]
             out['pred_rotations'] = outputs_rot[-1]
         if self.aux_loss:
             if self.enable_pose:
                 # FIXME aux_loss for pose preds 
-                out['aux_outputs'] = self._set_aux_pose_loss(outputs_class, outputs_coord, outputs_rot, outputs_tran)
+                out['aux_outputs'] = self._set_aux_pose_loss(outputs_class, outputs_coord, outputs_rot, outputs_tran, outputs_keypoint)
             else:
                 out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
         with Timer('track_scores'):
@@ -716,6 +774,7 @@ class MOTR(nn.Module):
         if self.enable_pose:
             track_instances.pred_rotations = outputs_rot[-1, 0]
             track_instances.pred_translations = outputs_tran[-1, 0]
+            track_instances.pred_keypoints = outputs_keypoint[-1, 0]
 
         with Timer('track_instances'):
             if self.training:
@@ -770,6 +829,7 @@ class MOTR(nn.Module):
             'pred_boxes': [],
             'pred_rotations':[],
             'pred_translations':[],
+            'pred_keypoints':[],
         }
         with Timer('_generate_empty_tracks'):
             track_instances = self._generate_empty_tracks()
@@ -786,6 +846,7 @@ class MOTR(nn.Module):
                 if self.enable_pose:
                     outputs['pred_rotations'].append(frame_res['pred_rotations'])
                     outputs['pred_translations'].append(frame_res['pred_translations'])
+                    outputs['pred_keypoints'].append(frame_res['pred_keypoints'])
             
         if not self.training: 
             # TODO HACK: Find a better logic
