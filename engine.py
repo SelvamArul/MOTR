@@ -153,7 +153,7 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
                     max_norm: float = 0, profile: bool = False):
     if epoch == 0:
         wandb.login()
-        wandb.init(project='debug',  #"cuda12_temporal_pose",
+        wandb.init(project='kpts',  #"cuda12_temporal_pose",
                 name=exp_name,
                 config={"lr":optimizer.param_groups[0]["lr"]})
     
@@ -179,7 +179,7 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
         _loss_dict = {k:v.item() for (k, v) in loss_dict.items() }
         _losses = [_loss_dict[k] * weight_dict[k] for k in _loss_dict.keys() if k in weight_dict]
         _lll = {k:_loss_dict[k] * weight_dict[k] for k in _loss_dict.keys() if k in weight_dict}
-        import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
         
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
