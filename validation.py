@@ -32,7 +32,7 @@ from util.tool import load_model
 import util.misc as utils
 import datasets.samplers as samplers
 from datasets import build_dataset, get_coco_api_from_dataset
-from engine import evaluate, train_one_epoch, train_one_epoch_mot, eval_mot_bbox
+from engine import evaluate, train_one_epoch, train_one_epoch_mot, eval_pose
 from models import build_model
 
 from datasets.bop_models import build as build_bop_models
@@ -373,7 +373,7 @@ def main(args):
     args.start_epoch = 0
     train_func = train_one_epoch
     if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
-        val_func = eval_mot_bbox # TODO val function for non ycbv cases?
+        val_func = eval_pose# TODO val function for non ycbv cases?
 
         dataset_train.set_epoch(args.start_epoch)
         dataset_val.set_epoch(args.start_epoch)

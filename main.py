@@ -362,14 +362,13 @@ def main(args):
         # if args.output_dir:
         #     utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, output_dir / "eval.pth")
         # return
-
     print("Start training")
     start_time = time.time()
     # import ipdb; ipdb.set_trace()
     train_func = train_one_epoch
     if args.dataset_file in ['e2e_mot', 'mot', 'ori_mot', 'e2e_static_mot', 'e2e_joint', 'ycbv']:
         train_func = train_one_epoch_mot
-        val_func = eval_mot # TODO val function for non ycbv cases?
+        val_func = eval_pose # TODO val function for non ycbv cases?
 
         dataset_train.set_epoch(args.start_epoch)
         dataset_val.set_epoch(args.start_epoch)

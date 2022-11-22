@@ -150,12 +150,14 @@ import wandb
 def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, exp_name: str,
-                    max_norm: float = 0, profile: bool = False):
-    if epoch == 0:
-        wandb.login()
-        wandb.init(project='kpts',  #"cuda12_temporal_pose",
-                name=exp_name,
-                config={"lr":optimizer.param_groups[0]["lr"]})
+                    max_norm: float = 0, 
+                    do_visualize=False, profile: bool = False):
+    if do_visualize:
+        if epoch == 0:
+            wandb.login()
+            wandb.init(project='setup_ddp',  #"cuda12_temporal_pose",
+                    name=exp_name,
+                    config={"lr":optimizer.param_groups[0]["lr"]})
     
     model.train()
     criterion.train()
@@ -206,38 +208,39 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
             grad_total_norm = utils.get_total_grad_norm(model.parameters(), max_norm)
         optimizer.step()
         log_loss = {k:v.item() for k,v in loss_dict_reduced_scaled.items()}
-        frame_0_sum =0
-        frame_1_sum =0
-        frame_2_sum =0
-        frame_3_sum =0
-        frame_4_sum =0
-        frame_5_sum =0
-        for k, v in log_loss.items():
-            if 'frame_0' in k:
-                frame_0_sum += v
-            elif 'frame_1' in k:
-                frame_1_sum += v
-            elif 'frame_2' in k:
-                frame_2_sum += v
-            elif 'frame_3' in k:
-                frame_3_sum += v
-            elif 'frame_4' in k:
-                frame_4_sum += v
-            elif 'frame_5' in k:
-                frame_5_sum += v
-        log_loss['frame_0_sum'] = frame_0_sum
-        log_loss['frame_1_sum'] = frame_1_sum
-        log_loss['frame_2_sum'] = frame_2_sum
-        log_loss['frame_3_sum'] = frame_3_sum
-        log_loss['frame_4_sum'] = frame_4_sum
-        log_loss['frame_5_sum'] = frame_5_sum
+        if do_visualize:
+            frame_0_sum =0
+            frame_1_sum =0
+            frame_2_sum =0
+            frame_3_sum =0
+            frame_4_sum =0
+            frame_5_sum =0
+            for k, v in log_loss.items():
+                if 'frame_0' in k:
+                    frame_0_sum += v
+                elif 'frame_1' in k:
+                    frame_1_sum += v
+                elif 'frame_2' in k:
+                    frame_2_sum += v
+                elif 'frame_3' in k:
+                    frame_3_sum += v
+                elif 'frame_4' in k:
+                    frame_4_sum += v
+                elif 'frame_5' in k:
+                    frame_5_sum += v
+            log_loss['frame_0_sum'] = frame_0_sum
+            log_loss['frame_1_sum'] = frame_1_sum
+            log_loss['frame_2_sum'] = frame_2_sum
+            log_loss['frame_3_sum'] = frame_3_sum
+            log_loss['frame_4_sum'] = frame_4_sum
+            log_loss['frame_5_sum'] = frame_5_sum
 
-        log_loss_trim  = {}
-        for k, v in log_loss.items():
-            if 'aux' not in k:
-                log_loss_trim[k] = v
-        # import ipdb; ipdb.set_trace()
-        wandb.log(log_loss_trim)
+            log_loss_trim  = {}
+            for k, v in log_loss.items():
+                if 'aux' not in k:
+                    log_loss_trim[k] = v
+            # import ipdb; ipdb.set_trace()
+            wandb.log(log_loss_trim)
         # metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
         metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
         # metric_logger.update(class_error=loss_dict_reduced['class_error'])
@@ -257,7 +260,7 @@ from rich import print as rprint
 from collections import Counter
 from datasets.pose_eval import PoseEvaluator
 @torch.no_grad()
-def eval_mot_bbox(model: torch.nn.Module,
+def eval_pose(model: torch.nn.Module,
                     criterion: torch.nn.Module,
                     data_loader: Iterable,
                     models_ds : Iterable,
