@@ -32,9 +32,10 @@ from util.tool import load_model
 import util.misc as utils
 import datasets.samplers as samplers
 from datasets import build_dataset, get_coco_api_from_dataset
-from engine import evaluate, train_one_epoch, train_one_epoch_mot, eval_mot
+from engine import evaluate, train_one_epoch, train_one_epoch_mot, eval_pose
 from models import build_model
 from handy_profiler import Timer
+from datasets.bop_models import build as build_bop_models
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Deformable DETR Detector', add_help=False)
@@ -202,6 +203,10 @@ def get_args_parser():
     parser.add_argument('--cr_loss_coef', default=5, type=float)
     parser.add_argument('--profile', action='store_true')
     
+    # bop_models params
+    parser.add_argument('--trans_scale', type=int, default=1, help='pose dataset unit')
+    parser.add_argument('--num_keypoints', default=32, type=int)
+    parser.add_argument('--posecnn_val', action='store_true')
     return parser
 
 
@@ -373,6 +378,7 @@ def main(args):
         dataset_train.set_epoch(args.start_epoch)
         dataset_val.set_epoch(args.start_epoch)
     output_dir.mkdir(exist_ok=True)
+    bop_models = build_bop_models(args)
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             sampler_train.set_epoch(epoch)
@@ -389,18 +395,18 @@ def main(args):
                 checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
 
                 # validation
-                val_stats = val_func(model, criterion, data_loader_val, device, epoch) 
+                val_stats = val_func(model, criterion, data_loader_val, bop_models, device, 
+                        args.output_dir, do_visualize=False) 
 
 
-                log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                             **{f'test_{k}': v for k, v in val_stats.items()},
+                log_stats = {
+                             **{f'test_{k}': v.tolist() for k, v in val_stats.items()},
                              'epoch': epoch,
                              'n_parameters': n_parameters}
-                # import ipdb; ipdb.set_trace()
                 if args.output_dir and utils.is_main_process():
                     with (output_dir / "log.txt").open("a") as f:
                         f.write(json.dumps(log_stats) + "\n")
-
+                
             for checkpoint_path in checkpoint_paths:
                 utils.save_on_master({
                     'model': model_without_ddp.state_dict(),

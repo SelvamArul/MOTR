@@ -388,11 +388,11 @@ def eval_pose(model: torch.nn.Module,
             # img_vis = wandb.Image(img,
             #         boxes = 
 
-    for data_dict in data_loader:    
+    for data_dict in data_loader:   
         data_dict = data_dict_to_cuda(data_dict, device)
         outputs = model(data_dict)
-        if do_visualize:
-            predictions_to_wandb_dict(outputs, data_dict)
+        # if do_visualize:
+        #     predictions_to_wandb_dict(outputs, data_dict)
         # _card_error += compute_cardinality_error(outputs, data_dict, x_count)
         loss_dict = criterion(outputs, data_dict)
         pose_evaluator.update(outputs, data_dict['gt_instances'])
@@ -427,13 +427,11 @@ def eval_pose(model: torch.nn.Module,
     if pose_evaluator is not None:
         pose_evaluator.accumulate()
         pose_evaluator.summarize()
-    import ipdb; ipdb.set_trace()
-    print (pose_evaluator.stats)
 
     # metric_logger.synchronize_between_processes()
     # print("Averaged stats:", metric_logger)
-    return #{k: meter.global_avg for k, meter in metric_logger.meters.items()}
-
+    # return #{k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    return pose_evaluator.metrics_per_class 
 
 
 
