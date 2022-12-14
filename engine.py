@@ -174,7 +174,7 @@ def train_one_epoch_mot(model: torch.nn.Module, criterion: torch.nn.Module,
     for data_dict in metric_logger.log_every(data_loader, print_freq, header):
         data_dict = data_dict_to_cuda(data_dict, device)
         outputs = model(data_dict)
-
+        import ipdb; ipdb.set_trace()
         loss_dict = criterion(outputs, data_dict)
         # print("iter {} after model".format(cnt-1))
         weight_dict = criterion.weight_dict
@@ -395,6 +395,7 @@ def eval_pose(model: torch.nn.Module,
         #     predictions_to_wandb_dict(outputs, data_dict)
         # _card_error += compute_cardinality_error(outputs, data_dict, x_count)
         loss_dict = criterion(outputs, data_dict)
+        # import ipdb; ipdb.set_trace()
         pose_evaluator.update(outputs, data_dict['gt_instances'])
 
 
@@ -427,6 +428,7 @@ def eval_pose(model: torch.nn.Module,
     if pose_evaluator is not None:
         pose_evaluator.accumulate()
         pose_evaluator.summarize()
+    import ipdb; ipdb.set_trace()
 
     # metric_logger.synchronize_between_processes()
     # print("Averaged stats:", metric_logger)

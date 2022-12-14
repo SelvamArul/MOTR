@@ -27,8 +27,8 @@ xpython -m torch.distributed.launch --nproc_per_node=${#gpus} \
     --meta_arch motr \
     --dataset_file ycbv\
     --dataset_path '/home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/'\
-    --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_train.txt'\
-    --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_val.txt'\
+    --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_mini.txt'\
+    --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_mini.txt'\
     --resume '/home/user/periyasa/workspace/MOTR/exps/ddp_pose_from_scratch_19-May-2022_17:44/checkpoint.pth'\
     --epoch 100 \
     --num_workers 4 \

@@ -10,14 +10,14 @@ shopt -s expand_aliases
 
 # for MOT17
 alias xpython="singularity run -B /home/nfs/inf6/data/models,/home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET,/home/nfs/inf6/data/datasets/ycbv_coco,$HOME/.local/bin --env PATH=$HOME/.local/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --nv /home/nfs/inf6/data/singularity_images/motr_image.sif python"
-EXP_DIR=exps/vanilla_detr_motr_meter_pose_coeff_0.5
-xpython main.py \
+EXP_DIR=exps/pose_debug
+xpython main_debug.py \
     --meta_arch motr \
     --dataset_file ycbv\
     --dataset_path '/home/nfs/inf6/data/datasets/YCB_VIDEO_DATASET/YCB_Video_Dataset/data/'\
-    --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_mini.txt'\
-    --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_mini.txt'\
-    --pretrained '/home/nfs/inf6/data/models/motr_models/yolopose_refactored.pth'\
+    --dataset_desc_file_train '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_train.txt'\
+    --dataset_desc_file_val '/home/user/periyasa/workspace/MOTR/datasets/ycbv_train_desc_train.txt'\
+    --pretrained '/home/user/periyasa/workspace/MOTR/exps/setup_ddp_23-Nov-2022_13:14/checkpoint0015.pth'\
     --epoch 100 \
     --num_workers 4 \
     --lr_drop 100 \

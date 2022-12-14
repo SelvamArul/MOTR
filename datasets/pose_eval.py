@@ -147,6 +147,7 @@ class PoseEvaluator(object):
                     image_errors['kpts'] = errors_kpts                    
                     image_errors['kpts_z'] = np.ones_like(errors_kpts) * np.inf
             gts_ind, dts_ind = self.matching(dts, gts, self.threshold)
+            import ipdb; ipdb.set_trace()
             dts_boxes = dts['boxes'] if 'boxes' in dts else gts['boxes'][gts_ind]
             for g_i, d_i in zip(gts_ind, dts_ind):
                 # dts_trans[d_i] -= self.model_ds.offsets[labels[g_i] - 1]
